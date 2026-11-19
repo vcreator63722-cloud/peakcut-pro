@@ -287,7 +287,7 @@ def _own_address(host: str) -> bool:
     import ipaddress
     name = host.strip().lower()
     name = name[1:name.index("]")] if name.startswith("[") and "]" in name else name.rsplit(":", 1)[0] if ":" in name else name
-    if name in ("localhost", urlparse(config.PUBLIC_URL).hostname or "") or name.endswith(".localhost"):
+    if name in ("localhost", urlparse(config.PUBLIC_URL).hostname or "") or name.endswith(".localhost") or name.endswith(".onrender.com"):
         return True
     try:
         ipaddress.ip_address(name)
