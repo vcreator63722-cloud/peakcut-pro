@@ -21,50 +21,128 @@ creator's live stream and clip the highlights while the stream is still running.
 - **Your own AI.** Gemini, OpenAI, Grok, Groq, OpenRouter, Claude, a local model through Ollama, or anything that
   speaks the OpenAI chat format. No key at all also works: clips are then picked by loudness.
 
-## Quick start
+## PeakCut Pro Features (Hinglish Gaming Shorts Pipeline)
 
-You need Python 3.10 or newer and `ffmpeg`. On Windows: `winget install Gyan.FFmpeg`. On a Mac: `brew install ffmpeg`.
-On Linux: `sudo apt install ffmpeg`. PeakCut finds it by itself and tells you in the dashboard if it is missing.
+PeakCut Pro extends PeakCut into an end-to-end production studio specifically built for Hinglish gaming YouTube Shorts (GTA 6 / Vice City, high-energy streams and gameplay). It turns raw gameplay moments into original, monetisation-safe vertical Shorts through a 5-phase studio workflow:
 
-Put PeakCut in a short folder that stays put: `C:\peakcut` on Windows, `~/peakcut` on a Mac or Linux. Not inside a
-temporary folder or an AI assistant's workspace: those get cleaned up, and on Windows a folder that deep stops the
-speech model from loading (Windows can't open files whose full path is over 260 characters). If an AI assistant
-installs it for you, it should ask you where to put it first ([AGENTS.md](AGENTS.md) tells it to).
+### 1. Source & Permission Manager
+- **Rights & Credit Tracking**: Store source video URL, creator name, custom credit text, and permission status per video.
+- **Proof Storage**: Upload screenshot proof or notes documenting permission directly into the job record (`/api/jobs/{jid}/permission/proof`).
+- **Automated Credits**: Automatically creates a formatted credit line for descriptions and an on-screen credit subtitle displayed during the last 2 seconds of the Short.
+- **Hard Permission Gating**: Posting to YouTube, Instagram, or TikTok is completely blocked while *"Permission confirmed"* is unchecked.
 
-On Windows:
+### 2. Frame-Aware Commentary Writer
+- **Multimodal AI Analysis**: Downscales and extracts 1 frame every 2 seconds alongside the transcript, sending both to vision-capable models (with automatic transcript fallback if vision is unavailable).
+- **Strict Structured Scripts**: Outputs hook, timed commentary lines `[{start, end, text}]`, outro, catchy title, description, and hashtags.
+- **Tone & Persona Controls**: Select tones (*Hype*, *Funny*, *Roast*, *Informative*, *Mystery*) and paste a 3-line channel voice sample to match your persona.
+- **Hinglish Style Toggle**: Choose between default Devanagari Hindi + Latin English (e.g., *"Bhai log ye drift check karo!"*) or full Roman Hinglish.
+- **Pacing & Auto-Retry**: Automatically calculates speaking pace (default 2.3 words/sec) to fit the exact clip duration, auto-retrying if generated text is too long.
+- **3 Variants & Live Editing**: Generates 3 unique commentary variants per clip with line-by-line script editing in the dashboard.
+- **Fact Integrity**: Restricts AI to what is visible or heard on screen; flags uncertain details with `[CHECK]`.
+- **Safe-Start Violence Detector**: Scans the first 7 seconds and cover frame for graphic violence, warning you and suggesting an alternate start point.
+
+### 3. Voiceover Studio (My Voice by Default)
+- **Interactive Teleprompter**: Synchronized video playback with volume control and live script line highlighting in time with timestamps.
+- **In-Browser Microphone Recording**: Record full takes or punch in line-by-line using browser `MediaRecorder` with a 3-2-1 countdown.
+- **FFmpeg Audio Mastering**: Server-side audio processing pipeline applying band-pass filtering (80Hz–8kHz), noise reduction (`afftdn`), and EBU R128 loudness normalisation (`loudnorm` -14 LUFS, -1.5 dB True Peak) into a clean 44.1kHz mono WAV master.
+- **Audio File Import**: Upload external microphone recordings or edited voice tracks (WAV, MP3, M4A, AAC, FLAC).
+- **Optional AI TTS Generator**: Off by default (labelled *"AI voice: higher monetisation risk"*); supports free Google Voice and OpenAI `tts-1` (`alloy`, `echo`, `nova`, etc.).
+
+### 4. Mixer & Renderer
+- **Sidechain Audio Ducking**: Dynamically compresses and ducks the game audio under your voiceover track (`sidechaincompress` + `amix`), keeping game ambience and SFX clearly audible.
+- **Hook Title Duration**: Hook text is strictly displayed for the first 2.0 seconds with smooth fade effects, keeping viewers hooked without cluttering the screen.
+- **Vertical 9:16 Standard**: Renders 1080x1920 (9:16), H.264 + AAC, strictly capped at 60 seconds max.
+- **Word-by-Word Voiceover Captions**: Uses local word-level timestamps with automatic rotating caption styles (`bounce` -> `hype` -> `clean`).
+- **Originality Checklist**: Evaluates each clip across 3 criteria:
+  1. Voiceover track present.
+  2. Voiceover covers at least 40% of duration (`PEAKCUT_MIN_VOICEOVER_COVERAGE`).
+  3. Non-identical edit layout.
+  Pass/fail badge displayed on thumbnail cards and clip modal.
+
+### 5. Review Queue & Metadata
+- **Review Before Posting**: Default is review-first (`autopost: false`). Auto-posting triggers only when source permission is confirmed, originality passes, and no duplicate is detected.
+- **Duplicate-Moment Detection**: Tracks source identity and time ranges across clips to prevent posting the same gameplay moment twice (flags overlap >= 50% or >= 10s).
+- **Editable Metadata**: Edit Title, Description (with credit line and source URL), and Hashtags (#tag) in the clip editor without re-rendering the video (`PUT /api/jobs/{jid}/clips/{cid}/metadata`).
+- **Daily Caps & Post Spacing**: Enforces minimum gap between posts and daily upload caps per account.
+
+---
+
+## 10-Step Quick Start for Windows
+
+Follow these 10 steps to run PeakCut Pro on Windows:
+
+1. **Install Python 3.10+**  
+   Download from [python.org](https://www.python.org/downloads/windows/). During installation, **check "Add Python to PATH"**.
+
+2. **Install FFmpeg**  
+   Open PowerShell or Command Prompt as Administrator and run:
+   ```powershell
+   winget install Gyan.FFmpeg
+   ```
+   *(Or download from [gyan.dev/ffmpeg/builds](https://www.gyan.dev/ffmpeg/builds/) and add its `bin` folder to your system PATH).*
+
+3. **Clone PeakCut Pro to a short path**  
+   Use a short folder path like `C:\peakcut` to avoid Windows 260-character path limits:
+   ```cmd
+   git clone https://github.com/haziqahmedqasmi/PeakCut.git C:\peakcut
+   ```
+
+4. **Navigate to the directory**  
+   ```cmd
+   cd C:\peakcut
+   ```
+
+5. **Create and activate a virtual environment**  
+   ```cmd
+   python -m venv .venv
+   .venv\Scripts\activate
+   ```
+
+6. **Install dependencies**  
+   ```cmd
+   pip install -r requirements.txt
+   ```
+
+7. **Configure environment settings**  
+   Copy the example environment file:
+   ```cmd
+   copy .env.example .env
+   ```
+   Open `.env` in Notepad and configure your AI key (e.g., `PEAKCUT_AI_PROVIDER=gemini` and `PEAKCUT_AI_KEY=your_key`), or leave it blank to configure directly in the web UI.
+
+8. **Start PeakCut Pro**  
+   ```cmd
+   python -m studio.server
+   ```
+   *(The first run downloads the local speech model ~480 MB automatically).*
+
+9. **Open the web studio**  
+   Open your browser to:
+   ```
+   http://127.0.0.1:8765
+   ```
+
+10. **Clip, Write, Record & Post**  
+    - Paste a GTA 6 or gaming stream link (or upload gameplay video).
+    - Under **Permissions**, enter the creator's name and confirm permission.
+    - Click **Generate Commentary** in the clip editor to create 3 Hinglish script variants.
+    - Tap **Teleprompter & Record** to record your voiceover with your microphone.
+    - Check the **Originality Badge** (Pass), verify title/hashtags, and post or queue your Short!
+
+---
+
+## Quick start (macOS & Linux)
+
+You need Python 3.10 or newer and `ffmpeg`. On a Mac: `brew install ffmpeg`. On Linux: `sudo apt install ffmpeg`. Put PeakCut in a short folder: `~/peakcut`.
 
 ```bash
-git clone <this repository> C:\peakcut
-```
-
-```bash
-cd C:\peakcut
-```
-
-On a Mac or Linux:
-
-```bash
-git clone <this repository> ~/peakcut
-```
-
-```bash
+git clone https://github.com/haziqahmedqasmi/PeakCut.git ~/peakcut
 cd ~/peakcut
-```
-
-```bash
 pip install -r requirements.txt
-```
-
-Start the server:
-
-```bash
 python -m studio.server
 ```
 
-The first start downloads the speech model by itself (about 480 MB, once).
-
-Open http://127.0.0.1:8765. There is no sign-in: it opens straight into the dashboard. Go to **Settings, AI**, choose
-your AI service, paste your key and press **Save and test** (see [Choose your AI](#choose-your-ai)).
+Open http://127.0.0.1:8765. There is no sign-in: it opens straight into the dashboard. Go to **Settings, AI**, choose your AI service, paste your key and press **Save and test**.
 
 ## Choose your AI
 

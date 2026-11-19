@@ -158,3 +158,12 @@ thread, so while a model is thinking the speech is still being written and
 `tests/test_games.py` (17 checks) covers the game reading, the tags, and that
 the game's tags are added to a post without losing the AI's own. It is in their
 suite as *"knowing which game a stream is"*.
+
+## PeakCut Pro: Frame-Aware Hinglish Shorts Pipeline
+
+In **PeakCut Pro**, gaming clips can be transformed into original, monetisation-compliant Hinglish Shorts:
+1. **Frame-Aware Vision Commentary**: Extracts 1 frame every 2 seconds and prompts vision-capable AI models to craft high-energy commentary scripts (Hype, Roast, Funny, Informative, Mystery) in Devanagari Hindi + English or Roman Hinglish.
+2. **Safe-Start Screen Check**: Automatically flags violent scenes in the first 7 seconds or cover frame to protect YouTube monetisation status.
+3. **Teleprompter Voiceover Studio**: Synchronous video teleprompter to record your own microphone commentary take-by-take with automatic FFmpeg noise reduction and loudness normalisation.
+4. **Sidechain Audio Ducking**: Dynamically dips game volume under your spoken voiceover while keeping background ambience alive.
+5. **Originality Verification**: Automatic badge checking voiceover presence, >=40% coverage duration, and layout differentiation before posting.
