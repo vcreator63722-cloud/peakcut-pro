@@ -7,7 +7,9 @@ import hmac
 import json
 import os
 import re
+import secrets
 import shutil
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -21,8 +23,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 
 from . import admin as admins
 from . import account, load
-from . import (accounts, ai, alerts, auth, config, creators, ctx, db, jobs, live, media, posting,
-               profiles, render, safe, transcribe, usage)
+from . import (accounts, ai, alerts, auth, commentary, config, creators, ctx, db, jobs, live, media, posting,
+               profiles, render, safe, transcribe, usage, voiceover)
 
 from . import tools as _tools  # noqa: E402
 
@@ -577,7 +579,8 @@ def status(request: Request):
     return {"user": auth.public(me_), "update": updates.latest() if me_.is_admin else None, "accounts": config.ACCOUNTS, "disk_full": load.disk_full(), "no_ffmpeg": bool(_tools.missing()), "links": {"repo": config.REPO_URL, "follow": config.FOLLOW_URL}, "ai": usage.brief(), "unread": notices.unread(),
             "tour": not accounts.settings()["tour_done"],
             "youtube": accounts.youtube_ready(), "connect": {p: accounts.can_connect(p) for p in accounts.PLATFORM_NAMES}, "max_upload_mb": config.MAX_UPLOAD_MB, "upload_part_mb": config.UPLOAD_PART_MB, "max_batch": config.MAX_ACTIVE_JOBS_PER_USER,
-            "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS}
+            "styles": {k: v["label"] for k, v in render.STYLES.items()}, "layouts": render.LAYOUTS,
+            "tts_enabled": config.TTS_ENABLED, "tts_provider": config.TTS_PROVIDER, "tts_voice": config.TTS_VOICE}
 
 
 # ================================================================ videos
@@ -683,6 +686,58 @@ def list_jobs():
 @app.get("/api/jobs/{jid}")
 def get_job(jid: str):
     return jobs.public(_job_or_404(jid))
+
+
+@app.get("/api/jobs/{jid}/permission")
+def get_permission(jid: str):
+    job = _job_or_404(jid)
+    perm = job.get("permission") or {}
+    line, scr = jobs.build_credit(perm.get("creator_name", ""), perm.get("source_url", ""), perm.get("credit_text", ""))
+    return {**perm, "credit_line": line, "on_screen_credit": scr}
+
+
+@app.post("/api/jobs/{jid}/permission")
+def set_permission(jid: str, body: dict = Body(...)):
+    _job_or_404(jid)
+    try:
+        return jobs.update_permission(jid, body)
+    except KeyError:
+        raise HTTPException(404, "Job not found")
+
+
+@app.post("/api/jobs/{jid}/permission/proof")
+def upload_permission_proof(jid: str, file: UploadFile = File(...)):
+    job = _job_or_404(jid)
+    name = re.sub(r"[^\w.\-]", "_", Path(file.filename or "proof.png").name)[:80]
+    ext = Path(name).suffix.lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp", ".pdf", ".txt"):
+        raise HTTPException(400, "Upload an image (png, jpg, webp), pdf or txt file.")
+    jd = jobs.job_dir(jid)
+    dest_name = f"proof_{secrets.token_hex(4)}{ext}"
+    dest = jd / dest_name
+    limit = 10 * 1024 * 1024
+    size = 0
+    with dest.open("wb") as out:
+        while chunk := file.file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                dest.unlink(missing_ok=True)
+                raise HTTPException(413, "Proof file is too large (max 10 MB).")
+            out.write(chunk)
+    return jobs.update_permission(jid, {"proof_file": dest_name})
+
+
+@app.get("/media/{jid}/proof")
+def get_permission_proof(jid: str):
+    job = _job_or_404(jid)
+    perm = job.get("permission") or {}
+    pf = perm.get("proof_file")
+    if not pf:
+        raise HTTPException(404, "No proof file uploaded")
+    p = jobs.job_dir(jid) / pf
+    if not p.is_file():
+        raise HTTPException(404, "Proof file not found")
+    return FileResponse(p)
 
 
 @app.get("/api/preview")
@@ -943,6 +998,332 @@ def rerender(jid: str, cid: str, body: dict = Body(...)):
     return jobs.public(job)
 
 
+@app.get("/api/jobs/{jid}/clips/{cid}/commentary")
+def get_commentary(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    return {"commentary": clip.get("commentary") or {}}
+
+
+@app.post("/api/jobs/{jid}/clips/{cid}/commentary")
+def create_commentary(jid: str, cid: str, body: dict = Body(...)):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    tone = str(body.get("tone") or config.COMMENTARY_TONE).lower()
+    channel_voice = str(body.get("channel_voice") or "")
+    script_style = str(body.get("script_style") or "devanagari_hindi")
+    try:
+        pace = float(body.get("speaking_pace") or config.COMMENTARY_PACE)
+    except (ValueError, TypeError):
+        pace = config.COMMENTARY_PACE
+
+    res = commentary.generate_for_clip(job, clip, tone=tone, channel_voice=channel_voice,
+                                      script_style=script_style, speaking_pace=pace)
+    clip["commentary"] = res
+    jobs.save(job)
+    return {"ok": True, "commentary": res}
+
+
+@app.put("/api/jobs/{jid}/clips/{cid}/commentary")
+def update_commentary(jid: str, cid: str, body: dict = Body(...)):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    comm = clip.setdefault("commentary", {})
+    if "selected_variant" in body:
+        comm["selected_variant"] = int(body["selected_variant"])
+    if "variants" in body and isinstance(body["variants"], list):
+        comm["variants"] = body["variants"]
+    # If user wants to apply the selected variant to the clip's main metadata
+    if body.get("apply_to_clip") and comm.get("variants"):
+        idx = max(0, min(len(comm["variants"]) - 1, comm.get("selected_variant", 0)))
+        v = comm["variants"][idx]
+        if v.get("hook"):
+            clip["hook"] = v["hook"]
+        if v.get("title"):
+            clip["title"] = v["title"]
+        if v.get("description"):
+            clip["description"] = v["description"]
+        if v.get("hashtags"):
+            clip["hashtags"] = v["hashtags"]
+    jobs.save(job)
+    return {"ok": True, "commentary": comm}
+
+
+# ================================================================ voiceover studio
+@app.get("/api/jobs/{jid}/clips/{cid}/voiceover")
+def get_voiceover_info(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    return {"ok": True, "voiceover": clip.get("voiceover") or {}}
+
+
+@app.post("/api/jobs/{jid}/clips/{cid}/voiceover")
+async def save_voiceover(jid: str, cid: str, request: Request, line_index: int = -1):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+
+    c_type = request.headers.get("content-type", "")
+    body_bytes = None
+    if "multipart/form-data" in c_type:
+        form = await request.form()
+        up_file = form.get("audio") or form.get("file")
+        if up_file:
+            body_bytes = await up_file.read()
+        l_idx = form.get("line_index")
+        if l_idx is not None:
+            try:
+                line_index = int(l_idx)
+            except ValueError:
+                pass
+    else:
+        body_bytes = await request.body()
+
+    if not body_bytes or len(body_bytes) < 32:
+        raise HTTPException(400, "No audio recording received or audio data too small.")
+
+    d = Path(job["dir"]) / "clips"
+    d.mkdir(parents=True, exist_ok=True)
+
+    # Save to temp raw audio file first
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+        tmp.write(body_bytes)
+        raw_tmp_path = Path(tmp.name)
+
+    vo = clip.setdefault("voiceover", {})
+    clip_dur = max(1.0, float(clip.get("end", 0.0)) - float(clip.get("start", 0.0)))
+
+    try:
+        if line_index >= 0:
+            # Per-line take
+            line_out = d / f"{cid}_line_{line_index}.wav"
+            line_dur = voiceover.clean_voiceover_audio(raw_tmp_path, line_out)
+            line_takes = vo.setdefault("line_takes", {})
+            line_takes[str(line_index)] = {
+                "file": f"clips/{cid}_line_{line_index}.wav",
+                "duration": line_dur,
+                "recorded_at": time.time()
+            }
+            # Also assemble all takes if available or update master track
+            comm = clip.get("commentary") or {}
+            variants = comm.get("variants") or []
+            s_idx = comm.get("selected_variant", 0)
+            cur_var = variants[s_idx] if s_idx < len(variants) else (variants[0] if variants else {})
+            lines = cur_var.get("lines") or []
+
+            takes_to_assemble = []
+            for idx, l in enumerate(lines):
+                if str(idx) in line_takes:
+                    takes_to_assemble.append({
+                        "start": float(l.get("start", 0.0)),
+                        "end": float(l.get("end", 0.0)),
+                        "path": Path(job["dir"]) / line_takes[str(idx)]["file"]
+                    })
+            if takes_to_assemble:
+                master_out = d / f"{cid}_voiceover.wav"
+                tot_dur = voiceover.assemble_takes_to_wav(takes_to_assemble, clip_dur, master_out)
+                vo.update({
+                    "has_voiceover": True,
+                    "file": f"clips/{cid}_voiceover.wav",
+                    "filename": f"{cid}_voiceover.wav",
+                    "duration": tot_dur,
+                    "mode": "mic_line",
+                    "updated_at": time.time()
+                })
+        else:
+            # Full take
+            master_out = d / f"{cid}_voiceover.wav"
+            tot_dur = voiceover.clean_voiceover_audio(raw_tmp_path, master_out)
+            vo.update({
+                "has_voiceover": True,
+                "file": f"clips/{cid}_voiceover.wav",
+                "filename": f"{cid}_voiceover.wav",
+                "duration": tot_dur,
+                "mode": "mic_full",
+                "updated_at": time.time()
+            })
+    finally:
+        raw_tmp_path.unlink(missing_ok=True)
+
+    jobs.save(job)
+    return {"ok": True, "voiceover": vo}
+
+
+@app.post("/api/jobs/{jid}/clips/{cid}/voiceover/import")
+async def import_voiceover(jid: str, cid: str, file: UploadFile = File(...)):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+
+    fn = file.filename or ""
+    ext = Path(fn).suffix.lower()
+    if ext not in (".wav", ".mp3", ".m4a", ".ogg", ".webm", ".aac", ".flac", ".mp4"):
+        raise HTTPException(400, "Supported audio formats: WAV, MP3, M4A, OGG, WEBM, AAC, FLAC.")
+
+    d = Path(job["dir"]) / "clips"
+    d.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_in = Path(tmp.name)
+
+    master_out = d / f"{cid}_voiceover.wav"
+    try:
+        dur = voiceover.clean_voiceover_audio(tmp_in, master_out)
+    finally:
+        tmp_in.unlink(missing_ok=True)
+
+    vo = clip.setdefault("voiceover", {})
+    vo.update({
+        "has_voiceover": True,
+        "file": f"clips/{cid}_voiceover.wav",
+        "filename": f"{cid}_voiceover.wav",
+        "duration": dur,
+        "mode": "imported",
+        "source_filename": fn,
+        "updated_at": time.time()
+    })
+    jobs.save(job)
+    return {"ok": True, "voiceover": vo}
+
+
+@app.post("/api/jobs/{jid}/clips/{cid}/voiceover/tts")
+def generate_voiceover_tts(jid: str, cid: str, body: dict = Body(...)):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+
+    text = str(body.get("text") or "").strip()
+    if not text:
+        # Fall back to script lines if text not explicitly passed
+        comm = clip.get("commentary") or {}
+        variants = comm.get("variants") or []
+        s_idx = comm.get("selected_variant", 0)
+        cur_var = variants[s_idx] if s_idx < len(variants) else (variants[0] if variants else {})
+        text = " ".join(l.get("text", "") for l in cur_var.get("lines", []))
+
+    if not text:
+        raise HTTPException(400, "No script text available for TTS generation.")
+
+    provider = str(body.get("provider") or "free").lower()
+    voice = str(body.get("voice") or "alloy")
+
+    try:
+        raw_audio = ai.generate_tts(text, provider=provider, voice=voice)
+    except Exception as e:
+        raise HTTPException(502, f"TTS generation failed: {e}")
+
+    d = Path(job["dir"]) / "clips"
+    d.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+        tmp.write(raw_audio)
+        tmp_in = Path(tmp.name)
+
+    master_out = d / f"{cid}_voiceover.wav"
+    try:
+        dur = voiceover.clean_voiceover_audio(tmp_in, master_out)
+    finally:
+        tmp_in.unlink(missing_ok=True)
+
+    vo = clip.setdefault("voiceover", {})
+    vo.update({
+        "has_voiceover": True,
+        "file": f"clips/{cid}_voiceover.wav",
+        "filename": f"{cid}_voiceover.wav",
+        "duration": dur,
+        "mode": "tts",
+        "tts_provider": provider,
+        "tts_voice": voice,
+        "updated_at": time.time()
+    })
+    clip["originality"] = voiceover.evaluate_originality(job, clip, getattr(config, "MIN_VOICEOVER_COVERAGE", 0.40))
+    jobs.save(job)
+    return {"ok": True, "voiceover": vo}
+
+
+@app.get("/api/jobs/{jid}/clips/{cid}/originality")
+def get_clip_originality(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    orig = clip.get("originality")
+    if not orig:
+        orig = voiceover.evaluate_originality(job, clip, getattr(config, "MIN_VOICEOVER_COVERAGE", 0.40))
+        clip["originality"] = orig
+        jobs.save(job)
+    return {"ok": True, "originality": orig}
+
+
+@app.put("/api/jobs/{jid}/clips/{cid}/metadata")
+def update_clip_metadata_endpoint(jid: str, cid: str, body: dict = Body(...)):
+    _job_or_404(jid)
+    try:
+        res = jobs.update_clip_metadata(jid, cid, body)
+    except KeyError:
+        raise HTTPException(404, "No such clip")
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "metadata": res}
+
+
+@app.get("/api/jobs/{jid}/clips/{cid}/duplicate")
+def get_clip_duplicate_status(jid: str, cid: str, account_id: str = None):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    dup = posting.check_duplicate_moment(job, clip, account_id=account_id)
+    return {"ok": True, "duplicate": dup}
+
+
+@app.delete("/api/jobs/{jid}/clips/{cid}/voiceover")
+def delete_voiceover(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+
+    vo = clip.get("voiceover")
+    if vo and vo.get("file"):
+        vo_path = Path(job["dir"]) / vo["file"]
+        vo_path.unlink(missing_ok=True)
+
+    clip["voiceover"] = {"has_voiceover": False}
+    clip["originality"] = voiceover.evaluate_originality(job, clip, getattr(config, "MIN_VOICEOVER_COVERAGE", 0.40))
+    jobs.save(job)
+    return {"ok": True}
+
+
+
+@app.get("/media/{jid}/clips/{cid}/voiceover")
+def get_voiceover_audio_file(jid: str, cid: str):
+    job = _job_or_404(jid)
+    clip = next((c for c in job["clips"] if c["id"] == cid), None)
+    if not clip:
+        raise HTTPException(404, "No such clip")
+    vo = clip.get("voiceover") or {}
+    rel = vo.get("file")
+    if not rel:
+        raise HTTPException(404, "No voiceover file for this clip")
+    f = Path(job["dir"]) / rel
+    if not f.is_file():
+        raise HTTPException(404, "Voiceover file not found")
+    return FileResponse(f, media_type="audio/wav", headers={"Cache-Control": "private, no-cache"})
+
+
 @app.delete("/api/jobs/{jid}")
 def delete_job(jid: str):
     job = _job_or_404(jid)
@@ -1024,7 +1405,7 @@ def delete_my_account(request: Request, body: dict = Body(...)):
 
 @app.get("/media/{jid}/{name}")
 def media_file(jid: str, name: str, download: int = 0):
-    if not re.fullmatch(r"[\w\-]+\.(mp4|jpg)", name):
+    if not re.fullmatch(r"[\w\-]+\.(mp4|jpg|wav|mp3)", name):
         raise HTTPException(404)
     f = Path(_job_or_404(jid)["dir"]) / "clips" / name
     if not f.is_file():
@@ -1455,8 +1836,14 @@ def add_posts(body: dict = Body(...)):
     clip = next((c for c in job["clips"] if c["id"] == body.get("clip")), None) if job else None
     if not clip or clip.get("status") != "done":
         raise HTTPException(404, "That clip is not ready")
-    made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")))
+    try:
+        made = posting.enqueue(job, clip, [str(a) for a in body.get("accounts", [])][:20], now=bool(body.get("now")))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not made:
+        dup = posting.check_duplicate_moment(job, clip)
+        if dup.get("is_duplicate"):
+            raise HTTPException(400, f"Duplicate moment: {dup.get('reason')}")
         raise HTTPException(400, "Nothing was queued. Pick at least one account this clip has not already gone to.")
     return {"queued": len(made)}
 

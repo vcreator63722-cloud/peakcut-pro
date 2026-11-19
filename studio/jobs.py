@@ -2,6 +2,7 @@
 import collections
 import json
 import os
+import re
 import math
 import queue
 import shutil
@@ -11,7 +12,7 @@ import traceback
 import uuid
 from pathlib import Path
 
-from . import brain, config, creators, ctx, facecam, games, load, media, quality, render, roman, safe, transcribe, usage
+from . import brain, config, creators, ctx, facecam, games, load, media, quality, render, roman, safe, transcribe, usage, voiceover
 
 class _FairQueue:
     """Whose video is next. Each person has their own line and the lines take turns, so someone who adds ten
@@ -142,6 +143,29 @@ def clean_options(options) -> dict:
     return out
 
 
+def build_credit(creator_name="", source_url="", custom=""):
+    """Auto-build description credit line and on-screen credit text."""
+    custom = (custom or "").strip()
+    creator = (creator_name or "").strip()
+    url = (source_url or "").strip()
+    if custom:
+        line = custom
+        screen = custom
+    elif creator and url:
+        line = f"Original video by {creator}: {url}"
+        screen = f"Credit: @{creator}"
+    elif creator:
+        line = f"Credit: {creator}"
+        screen = f"Credit: @{creator}"
+    elif url:
+        line = f"Source: {url}"
+        screen = "Credit: Original Source"
+    else:
+        line = "PeakCut Pro"
+        screen = ""
+    return line, screen
+
+
 def job_dir(jid) -> Path:
     return Path(_jobs[jid]["dir"])
 
@@ -207,6 +231,16 @@ def _load_file(f: Path, uid: str):
     job.setdefault("kind", "video")
     job.setdefault("creator", None)
     job.setdefault("options", {}).setdefault("captions", True)
+    perm = job.setdefault("permission", {})
+    perm.setdefault("source_url", job.get("source", {}).get("url") or "")
+    perm.setdefault("creator_name", job.get("uploader") or "")
+    perm.setdefault("credit_text", "")
+    perm.setdefault("confirmed", False)
+    perm.setdefault("proof_note", "")
+    perm.setdefault("proof_file", "")
+    line, scr = build_credit(perm.get("creator_name", ""), perm.get("source_url", ""), perm.get("credit_text", ""))
+    perm.setdefault("credit_line", line)
+    perm.setdefault("on_screen_credit", scr)
     if job.get("source_path"):
         job["source_path"] = _remap(job["source_path"], f.parent)
     if job.get("source", {}).get("path"):
@@ -294,9 +328,15 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     opts = {**base, **clean_options(options)}
     if opts["min_len"] >= opts["max_len"]:
         opts["min_len"] = max(5, opts["max_len"] - 5)
+    perm = {"source_url": source.get("url") or "", "creator_name": "", "credit_text": "",
+            "confirmed": False, "proof_note": "", "proof_file": ""}
+    line, scr = build_credit(perm["creator_name"], perm["source_url"], perm["credit_text"])
+    perm["credit_line"] = line
+    perm["on_screen_credit"] = scr
     job = {"id": jid, "user": ctx.uid(), "kind": kind, "creator": creator, "dir": str(d), "created": time.time(), "source": source,
            "options": opts, "status": "queued", "stage": "Waiting", "progress": 0.0,
-           "title": source.get("name", ""), "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {}}
+           "title": source.get("name", ""), "uploader": "", "duration": 0, "clips": [], "error": None, "ai": {},
+           "permission": perm}
     d.mkdir(parents=True)
     with _lock:
         _jobs[jid] = job
@@ -305,6 +345,31 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     if enqueue:
         _q.put(("job", jid, None), user=job["user"])
     return job
+
+
+def update_permission(jid: str, data: dict) -> dict:
+    with _lock:
+        job = get(jid)
+        if not job:
+            raise KeyError("Job not found")
+        perm = job.setdefault("permission", {})
+        if "source_url" in data:
+            perm["source_url"] = str(data["source_url"] or "").strip()
+        if "creator_name" in data:
+            perm["creator_name"] = str(data["creator_name"] or "").strip()
+        if "credit_text" in data:
+            perm["credit_text"] = str(data["credit_text"] or "").strip()
+        if "confirmed" in data:
+            perm["confirmed"] = bool(data["confirmed"])
+        if "proof_note" in data:
+            perm["proof_note"] = str(data["proof_note"] or "").strip()
+        if "proof_file" in data:
+            perm["proof_file"] = str(data["proof_file"] or "").strip()
+        line, scr = build_credit(perm.get("creator_name", ""), perm.get("source_url", ""), perm.get("credit_text", ""))
+        perm["credit_line"] = line
+        perm["on_screen_credit"] = scr
+        save(job)
+        return perm
 
 
 def enqueue(job):
@@ -361,6 +426,15 @@ def request_render(jid, cid, changes: dict):
     for k in ("hook", "title", "description", "style", "layout"):
         if k in changes:
             new[k] = str(changes[k])[:{"hook": 60, "title": 100, "description": 2000}.get(k, 20)]
+    if "hashtags" in changes:
+        raw_tags = changes["hashtags"]
+        if isinstance(raw_tags, str):
+            tags = [t.lstrip("#").strip() for t in re.split(r"[\s,]+", raw_tags) if t.lstrip("#").strip()]
+        elif isinstance(raw_tags, list):
+            tags = [str(t).lstrip("#").strip() for t in raw_tags if str(t).lstrip("#").strip()]
+        else:
+            tags = []
+        new["hashtags"] = tags[:20]
     if new.get("style") not in render.STYLES:
         new["style"] = DEFAULTS["style"]
     if new.get("layout") not in render.LAYOUTS:
@@ -368,6 +442,33 @@ def request_render(jid, cid, changes: dict):
     clip.update(new, status="queued")
     save(job)
     _q.put(("clip", jid, cid))
+
+
+def update_clip_metadata(jid: str, cid: str, changes: dict) -> dict:
+    """Updates clip title, description, hook, or hashtags without triggering video re-render."""
+    job = _jobs.get(jid)
+    if not job or job.get("user") != ctx.uid():
+        raise KeyError("Job not found")
+    clip = next((c for c in job.get("clips", []) if c["id"] == cid), None)
+    if not clip:
+        raise KeyError("Clip not found")
+    if "title" in changes:
+        clip["title"] = str(changes["title"])[:100]
+    if "description" in changes:
+        clip["description"] = str(changes["description"])[:2000]
+    if "hook" in changes:
+        clip["hook"] = str(changes["hook"])[:60]
+    if "hashtags" in changes:
+        raw_tags = changes["hashtags"]
+        if isinstance(raw_tags, str):
+            tags = [t.lstrip("#").strip() for t in re.split(r"[\s,]+", raw_tags) if t.lstrip("#").strip()]
+        elif isinstance(raw_tags, list):
+            tags = [str(t).lstrip("#").strip() for t in raw_tags if str(t).lstrip("#").strip()]
+        else:
+            tags = []
+        clip["hashtags"] = tags[:20]
+    save(job)
+    return {k: clip.get(k) for k in ("title", "description", "hook", "hashtags")}
 
 
 def render_one(job, clip, words):
@@ -379,12 +480,40 @@ def render_one(job, clip, words):
             _piece_again(job, clip)
         off = clip.get("src_offset", 0.0)
         src = Path(clip["src"]) if clip.get("src") else Path(job["source_path"])
-        if not clip.get("src"):
-            clip["end"] = min(clip["end"], job["duration"])
-        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""))
-        near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
+        perm = job.get("permission") or {}
+        credit = clip.get("on_screen_credit") or perm.get("on_screen_credit") or perm.get("credit_text") or ""
+
+        # Rotate caption styles if not explicitly pinned
+        if not clip.get("style") or clip["style"] not in render.STYLES:
+            c_idx = job.get("clips", []).index(clip) if clip in job.get("clips", []) else 0
+            clip["style"] = voiceover.rotate_caption_style(None, c_idx)
+
+        local = dict(clip, start=clip["start"] - off, end=clip["end"] - off, hook=roman.to_roman(clip.get("hook") or ""), on_screen_credit=credit)
+
+        # Voiceover ducking and transcription
+        vo = clip.get("voiceover") or {}
+        vo_file = Path(job["dir"]) / vo["file"] if vo.get("has_voiceover") and vo.get("file") else None
+        if vo_file and vo_file.is_file():
+            local["voiceover_path"] = str(vo_file)
+            vo_words = voiceover.transcribe_voiceover(vo_file, clip_start=clip["start"])
+            if not vo_words and clip.get("commentary"):
+                vo_words = voiceover.script_to_words(clip["commentary"], clip_start=clip["start"])
+            near = _caption_words(job, clip, vo_words, off) if (vo_words and clip.get("captions", True)) else (_caption_words(job, clip, words, off) if clip.get("captions", True) else [])
+        else:
+            near = _caption_words(job, clip, words, off) if clip.get("captions", True) else []
+
         out = render.render_clip(src, d / "clips", clip["id"], local, near, job["width"], job["height"])
         clip.update(out, status="done", version=clip.get("version", 0) + 1, error=None)
+
+        # Originality checklist
+        min_cov = getattr(config, "MIN_VOICEOVER_COVERAGE", 0.40)
+        clip["originality"] = voiceover.evaluate_originality(job, clip, min_cov)
+
+        credit_line = perm.get("credit_line") or ""
+        if credit_line and credit_line not in clip.get("description", ""):
+            desc = clip.get("description", "").strip()
+            clip["description"] = f"{desc}\n\n{credit_line}".strip() if desc else credit_line
+
         post = {k: clip[k] for k in ("title", "description", "hashtags", "hook", "start", "end", "score")}
         (d / "clips" / f"{clip['id']}.json").write_text(json.dumps(post, indent=1), encoding="utf-8")
         if clip["version"] == 1:

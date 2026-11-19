@@ -139,6 +139,14 @@ STATIC_MIN_SECONDS = float(env("PEAKCUT_STATIC_MIN_SECONDS", "6"))
 # recording carries on, so a slow answer costs a check, not the stream.
 LIVE_AI_TIMEOUT = float(env("PEAKCUT_LIVE_AI_TIMEOUT", "45"))
 
+# Require permission to be confirmed before posting clips (Source & Permission Manager)
+REQUIRE_PERMISSION = env("PEAKCUT_REQUIRE_PERMISSION", "1") != "0"
+COMMENTARY_PACE = float(env("PEAKCUT_COMMENTARY_PACE", "2.3"))
+COMMENTARY_TONE = env("PEAKCUT_COMMENTARY_TONE", "hype")
+TTS_ENABLED = env("PEAKCUT_TTS_ENABLED", "0") == "1"
+TTS_PROVIDER = env("PEAKCUT_TTS_PROVIDER", "free")
+TTS_VOICE = env("PEAKCUT_TTS_VOICE", "alloy")
+
 for d in (USERS_DIR, MODELS_DIR, TMP_DIR, FONTS_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
@@ -246,3 +254,6 @@ def _read_google_client() -> tuple:
 # ---------------------------------------------------------------- video
 MAX_SOURCE_HEIGHT = 1080
 OUT_W, OUT_H, OUT_FPS = 1080, 1920, 30
+MIN_VOICEOVER_COVERAGE = float(env("PEAKCUT_MIN_VOICEOVER_COVERAGE", "0.40"))
+DUPLICATE_OVERLAP_THRESHOLD = float(env("PEAKCUT_DUPLICATE_OVERLAP_THRESHOLD", "0.50"))
+

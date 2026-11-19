@@ -810,8 +810,12 @@ dialog[open]{animation:fadein .16s ease}
   table.stack td.c-act{grid-column:1/-1}
   .lc-acts{flex-wrap:wrap}.stream{padding:8px;gap:10px}
   .set-sec h2{font-size:16px}
-  .ai-big{font-size:24px}
 }
+.prompter-line{padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);transition:all .2s ease;display:flex;align-items:center}
+.prompter-line.active{background:var(--brand-soft);border-color:var(--brand);box-shadow:0 0 12px rgba(255,139,51,.25)}
+.prompter-line.active .p-text{color:var(--brand-deep);font-weight:700}
+.p-text{font-size:15px;line-height:1.4;color:var(--text)}
+.p-time{font-size:11px;color:var(--dim);margin-bottom:2px;font-family:monospace}
 </style>
 </head>
 <body>
@@ -832,7 +836,9 @@ dialog[open]{animation:fadein .16s ease}
   </main>
 </div>
 <dialog id="clipdlg"></dialog>
+<dialog id="permdlg" style="max-width:520px;border-radius:var(--r);border:1px solid var(--line);background:var(--bg);color:var(--text);padding:24px"></dialog>
 <dialog id="formdlg"></dialog>
+<dialog id="prompterdlg" style="max-width:820px;width:95vw;border-radius:var(--r);border:1px solid var(--line);background:var(--bg);color:var(--text);padding:20px;box-shadow:0 12px 36px rgba(0,0,0,.35)"></dialog>
 <input type="file" id="file" accept="video/*" multiple hidden>
 <div id="toasts" role="status" aria-live="polite"></div>
 <div class="pop" id="bellpop" role="dialog" aria-label="Notifications" hidden></div>
@@ -847,6 +853,7 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const I = {
  "github": "<path fill-rule=\"evenodd\" transform=\"scale(16)\" d=\"M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z\"/>",
  "instagram": "<rect x=\"32\" y=\"32\" width=\"192\" height=\"192\" rx=\"56\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"18\"/><circle cx=\"128\" cy=\"128\" r=\"42\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"18\"/><circle cx=\"184\" cy=\"72\" r=\"13\"/>",
+ "mic": "<path d=\"M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0ZM208,128a8,8,0,0,1-16,0,64,64,0,0,1-128,0,8,8,0,0,1-16,0,80.11,80.11,0,0,0,72,79.6V232a8,8,0,0,0,16,0V207.6A80.11,80.11,0,0,0,208,128Z\"/>",
  "chat": "<path d=\"M128,24A104,104,0,0,0,36.18,176.88L24.83,210.93a16,16,0,0,0,20.24,20.24l34.05-11.35A104,104,0,1,0,128,24Zm0,192a87.87,87.87,0,0,1-44.06-11.81,8,8,0,0,0-6.54-.67L40,216,52.47,178.6a8,8,0,0,0-.66-6.54A88,88,0,1,1,128,216Zm12-88a12,12,0,1,1-12-12A12,12,0,0,1,140,128Zm-44,0a12,12,0,1,1-12-12A12,12,0,0,1,96,128Zm88,0a12,12,0,1,1-12-12A12,12,0,0,1,184,128Z\"/>",
  "bug": "<path d=\"M144,92a12,12,0,1,1,12,12A12,12,0,0,1,144,92ZM100,80a12,12,0,1,0,12,12A12,12,0,0,0,100,80Zm116,64A87.76,87.76,0,0,1,213,167l22.24,9.72A8,8,0,0,1,232,192a7.89,7.89,0,0,1-3.2-.67L207.38,182a88,88,0,0,1-158.76,0L27.2,191.33A7.89,7.89,0,0,1,24,192a8,8,0,0,1-3.2-15.33L43,167A87.76,87.76,0,0,1,40,144v-8H16a8,8,0,0,1,0-16H40v-8a87.76,87.76,0,0,1,3-23L20.8,79.33a8,8,0,1,1,6.4-14.66L48.62,74a88,88,0,0,1,158.76,0l21.42-9.36a8,8,0,0,1,6.4,14.66L213,89.05a87.76,87.76,0,0,1,3,23v8h24a8,8,0,0,1,0,16H216ZM56,120H200v-8a72,72,0,0,0-144,0Zm64,95.54V136H56v8A72.08,72.08,0,0,0,120,215.54ZM200,144v-8H136v79.54A72.08,72.08,0,0,0,200,144Z\"/>",
  "bulb": "<path d=\"M176,232a8,8,0,0,1-8,8H88a8,8,0,0,1,0-16h80A8,8,0,0,1,176,232Zm40-128a87.55,87.55,0,0,1-33.64,69.21A16.24,16.24,0,0,0,176,186v6a16,16,0,0,1-16,16H96a16,16,0,0,1-16-16v-6a16,16,0,0,0-6.23-12.66A87.59,87.59,0,0,1,40,104.49C39.74,56.83,78.26,17.14,125.88,16A88,88,0,0,1,216,104Zm-16,0a72,72,0,0,0-73.74-72c-39,.92-70.47,33.39-70.26,72.39a71.65,71.65,0,0,0,27.64,56.3A32,32,0,0,1,96,186v6h64v-6a32.15,32.15,0,0,1,12.47-25.35A71.65,71.65,0,0,0,200,104Z\"/>",
@@ -898,7 +905,8 @@ const I = {
  "signout": "<path d=\"M120,216a8,8,0,0,1-8,8H48a8,8,0,0,1-8-8V40a8,8,0,0,1,8-8h64a8,8,0,0,1,0,16H56V208h56A8,8,0,0,1,120,216Zm109.66-93.66-40-40a8,8,0,0,0-11.32,11.32L204.69,120H112a8,8,0,0,0,0,16h92.69l-26.35,26.34a8,8,0,0,0,11.32,11.32l40-40A8,8,0,0,0,229.66,122.34Z\"/>",
  "shield": "<path d=\"M208,40H48A16,16,0,0,0,32,56v56c0,52.72,25.52,84.67,46.93,102.19,23.06,18.86,46,25.26,47,25.53a8,8,0,0,0,4.2,0c1-.27,23.91-6.67,47-25.53C198.48,196.67,224,164.72,224,112V56A16,16,0,0,0,208,40Zm0,72c0,37.07-13.66,67.16-40.6,89.42A129.3,129.3,0,0,1,128,223.62a128.25,128.25,0,0,1-38.92-21.81C61.82,179.51,48,149.3,48,112l0-56,160,0ZM82.34,141.66a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32l-56,56a8,8,0,0,1-11.32,0Z\"/>",
  "users": "<path d=\"M117.25,157.92a60,60,0,1,0-66.5,0A95.83,95.83,0,0,0,3.53,195.63a8,8,0,1,0,13.4,8.74,80,80,0,0,1,134.14,0,8,8,0,0,0,13.4-8.74A95.83,95.83,0,0,0,117.25,157.92ZM40,108a44,44,0,1,1,44,44A44.05,44.05,0,0,1,40,108Zm210.14,98.7a8,8,0,0,1-11.07-2.33A79.83,79.83,0,0,0,172,168a8,8,0,0,1,0-16,44,44,0,1,0-16.34-84.87,8,8,0,1,1-5.94-14.85,60,60,0,0,1,55.53,105.64,95.83,95.83,0,0,1,47.22,37.71A8,8,0,0,1,250.14,206.7Z\"/>",
- "lock": "<path d=\"M128,112a28,28,0,0,0-8,54.83V184a8,8,0,0,0,16,0V166.83A28,28,0,0,0,128,112Zm0,40a12,12,0,1,1,12-12A12,12,0,0,1,128,152Zm80-72H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Z\"/>"
+ "lock": "<path d=\"M128,112a28,28,0,0,0-8,54.83V184a8,8,0,0,0,16,0V166.83A28,28,0,0,0,128,112Zm0,40a12,12,0,1,1,12-12A12,12,0,0,1,128,152Zm80-72H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Z\"/>",
+ "mic": "<path d=\"M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm112,64a8,8,0,0,1-16,0,64,64,0,0,1-128,0,8,8,0,0,1-16,0,80.11,80.11,0,0,0,72,79.6V232a8,8,0,0,0,16,0V207.6A80.11,80.11,0,0,0,208,128Z\"/>"
 };
 const ic = n => `<svg viewBox="0 0 256 256" aria-hidden="true">${I[n]}</svg>`;
 const navIc = (n, v) => ic(S.view === v && I[n + "_f"] ? n + "_f" : n);
@@ -1689,6 +1697,7 @@ function clipHtml(j, c) {
     <div class="clip-body">
       <div class="hook">${esc(c.hook || "Untitled clip")}</div>
       <div class="ttl">${esc(c.title)}</div>
+      ${c.originality ? `<div style="margin:3px 0 1px"><span class="count ${c.originality.passed ? "ok" : "bad"}" style="font-size:10px;padding:1px 6px">${c.originality.passed ? "✓ Original" : "⚠ Originality"}</span></div>` : ""}
       ${postPills(c) ? `<div class="row" style="gap:4px">${postPills(c)}</div>` : ""}
       <div class="clip-foot">
         ${busyClip ? "" : `<label class="selck" title="Select this clip"><input type="checkbox" data-sel="${key}" ${sel().has(key) ? "checked" : ""} aria-label="Select this clip"></label>`}
@@ -1737,6 +1746,7 @@ function jobHtml(j) {
   const pic = j.thumb ? `<img src="/media/${esc(j.id)}/thumb.jpg" alt="" loading="lazy">` : ic(j.source?.type === "file" ? "film" : "link");
   return `<div class="job-head"><div class="jt"><span class="jthumb">${pic}${j.duration ? `<span class="du">${fmt(j.duration)}</span>` : ""}</span><div style="min-width:0"><h3>${esc(j.title || j.source.name)}</h3><p class="sub">${meta}</p></div></div>
       <div class="row" style="flex-wrap:nowrap;gap:4px">${busy ? "" : `
+        <button class="btn sm ${j.permission?.confirmed ? "good" : "bad"}" data-act="perm" data-j="${j.id}" title="${j.permission?.confirmed ? "Permission Confirmed" : "Permission Needed before posting"}">${j.permission?.confirmed ? ic("check") + " Permission OK" : ic("lock") + " Permission Needed"}</button>
         ${j.clips.some(c => c.status === "done") ? `<button class="btn sm icon ghost" data-act="dlall" data-j="${j.id}" title="Download all clips of this video" aria-label="Download all clips of this video">${ic("down")}</button>` : ""}
         <button class="btn sm icon ghost" data-act="deljob" data-j="${j.id}" title="Delete" aria-label="Delete this video and its clips">${ic("trash")}</button>
         <label class="selck" title="Select this video and its clips"><input type="checkbox" data-sel="j:${j.id}" ${sel().has("j:" + j.id) ? "checked" : ""} aria-label="Select this video"></label>`}</div></div>
@@ -2128,7 +2138,13 @@ async function drawSettings() {
 async function saveSettings() { const d = {}; $$("#sform [data-s]").forEach(i => d[i.dataset.s] = i.value); await send("/api/settings", d, "PUT"); }
 
 /* ============================================================ clip editor */
-function openClip(jid, cid) { D.jid = jid; D.cid = cid; D.sig = ""; drawClipDlg(true); $("#clipdlg").showModal(); }
+function openClip(jid, cid) {
+  D.jid = jid; D.cid = cid; D.sig = ""; drawClipDlg(true); $("#clipdlg").showModal();
+  api(`/api/jobs/${jid}/clips/${cid}/duplicate`).then(res => {
+    const c = jobOf(jid)?.clips.find(x => x.id === cid);
+    if (c && res.duplicate) { c.duplicate = res.duplicate; drawClipDlg(true); }
+  }).catch(() => {});
+}
 function drawClipDlg(full) {
   const j = jobOf(D.jid), c = j?.clips.find(x => x.id === D.cid), dlg = $("#clipdlg");
   if (!c) { if (dlg.open) dlg.close(); return; }
@@ -2151,11 +2167,152 @@ function drawClipDlg(full) {
         <h3>Post text</h3>
         <label class="f">Title<input data-f="title" value="${esc(c.title)}"></label>
         <label class="f">Description<textarea data-f="description" rows="2">${esc(c.description)}</textarea></label>
-        <button class="btn" data-act="remake">${ic("scissors")}Save and re-make clip</button>
+        <label class="f">Hashtags<input data-f="hashtags" value="${esc(((c.hashtags || [])).map(h => '#' + String(h).replace(/^#/, '')).join(' '))}" placeholder="#GTA6 #ViceCity #Shorts"></label>
+        <div class="row" style="gap:6px;margin-bottom:12px">
+          <button class="btn primary sm" data-act="savemeta">${ic("check")}Save Post Text</button>
+          <button class="btn sm" data-act="remake">${ic("scissors")}Re-make Video</button>
+        </div>
+        <h3>Commentary Writer (Pro)</h3>
+        <div style="margin-bottom:14px;background:var(--muted);padding:12px;border-radius:var(--r-sm)">
+          <div class="two">
+            <label class="f">Tone
+              <select id="comm_tone">
+                <option value="hype" ${c.commentary?.tone === "hype" ? "selected" : ""}>Hype</option>
+                <option value="funny" ${c.commentary?.tone === "funny" ? "selected" : ""}>Funny</option>
+                <option value="roast" ${c.commentary?.tone === "roast" ? "selected" : ""}>Roast</option>
+                <option value="informative" ${c.commentary?.tone === "informative" ? "selected" : ""}>Informative</option>
+                <option value="mystery" ${c.commentary?.tone === "mystery" ? "selected" : ""}>Mystery</option>
+              </select>
+            </label>
+            <label class="f">Script Style
+              <select id="comm_style">
+                <option value="devanagari_hindi" ${c.commentary?.script_style !== "roman_hinglish" ? "selected" : ""}>Hindi (Devanagari) + English</option>
+                <option value="roman_hinglish" ${c.commentary?.script_style === "roman_hinglish" ? "selected" : ""}>Full Roman Hinglish</option>
+              </select>
+            </label>
+          </div>
+          <div class="two" style="margin-top:6px">
+            <label class="f">Speaking Pace (wps)
+              <input type="number" step="0.1" min="1.0" max="4.0" id="comm_pace" value="${c.commentary?.speaking_pace || 2.3}">
+            </label>
+            <div style="font-size:12px;display:flex;align-items:flex-end;padding-bottom:8px;color:var(--dim)">
+              Fits ~${Math.round((c.end - c.start) * (c.commentary?.speaking_pace || 2.3))} words in ${Math.round(c.end - c.start)}s
+            </div>
+          </div>
+          <label class="f" style="margin-top:6px">Channel Voice Sample (3 lines)
+            <textarea id="comm_voice" rows="2" placeholder="e.g. Bhai log look at this drift! Ye scene check karo!">${esc(c.commentary?.channel_voice || "")}</textarea>
+          </label>
+          <div class="row" style="margin-top:8px">
+            <button class="btn primary sm" data-act="gencomm">${ic("chat")}Generate Commentary (3 Variants)</button>
+          </div>
+          ${c.commentary?.warning ? `<div style="margin-top:8px;background:#FFF4E6;color:#7A3E0C;padding:6px 10px;border-radius:6px;font-size:12px">${esc(c.commentary.warning)}</div>` : ""}
+          ${c.commentary?.safe_start?.flagged ? `
+            <div style="margin-top:8px;background:var(--bad-soft);color:var(--bad);padding:8px 10px;border-radius:6px;font-size:12px">
+              <b>⚠️ Safe-Start Warning:</b> ${esc(c.commentary.safe_start.reason)}
+              <div style="margin-top:4px"><button class="btn sm" data-act="applysafestart" data-start="${c.commentary.safe_start.suggested_start}">Shift start to ${c.commentary.safe_start.suggested_start}s</button></div>
+            </div>` : ""}
+          ${c.commentary?.variants?.length ? `
+            <div style="margin-top:12px">
+              <div style="display:flex;gap:4px;margin-bottom:8px">
+                ${c.commentary.variants.map((v, i) => `<button class="btn sm ${i === (c.commentary.selected_variant || 0) ? "primary" : ""}" data-act="pickcomm" data-idx="${i}">Variant ${i + 1}</button>`).join("")}
+              </div>
+              ${(() => {
+                const sIdx = c.commentary.selected_variant || 0;
+                const sv = c.commentary.variants[sIdx] || c.commentary.variants[0];
+                return `
+                  <div style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px">
+                    <div style="font-size:12px;margin-bottom:6px"><b>Hook:</b> ${esc(sv.hook || "")}</div>
+                    <div style="font-size:12px;display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+                      ${(sv.lines || []).map((l, li) => `
+                        <div style="display:flex;gap:6px;align-items:center">
+                          <span class="count">${l.start}s-${l.end}s</span>
+                          <input class="f" data-comm-line="${li}" value="${esc(l.text)}" style="flex:1;font-size:12px;padding:4px 6px">
+                        </div>
+                      `).join("")}
+                    </div>
+                    <div style="font-size:12px;margin-bottom:8px"><b>Outro:</b> ${esc(sv.outro || "")}</div>
+                    <div class="row" style="justify-content:space-between">
+                      <button class="btn sm" data-act="savecommline">Save Script Edits</button>
+                      <button class="btn sm" data-act="applycomm">Apply to Clip Info</button>
+                    </div>
+                  </div>
+                `;
+              })()}
+            </div>` : ""}
+        </div>
+        <!-- Voiceover Studio (Phase 3) -->
+        <div style="margin-bottom:14px;background:var(--muted);padding:12px;border-radius:var(--r-sm)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <h4 style="margin:0;font-size:13px;display:flex;align-items:center;gap:6px">${ic("mic")}Voiceover Studio (My Voice)</h4>
+            ${c.voiceover?.has_voiceover ? `
+              <span class="count ok" style="font-size:11px">🎙️ Recorded (${c.voiceover.duration}s · ${c.voiceover.mode})</span>
+            ` : `
+              <span class="count" style="font-size:11px">Game audio only</span>
+            `}
+          </div>
+
+          ${c.voiceover?.has_voiceover ? `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;background:var(--bg);padding:6px 10px;border-radius:6px;border:1px solid var(--line)">
+              <audio controls src="/media/${j.id}/clips/${c.id}/voiceover" style="height:32px;flex:1"></audio>
+              <button class="btn sm" data-act="delvo" title="Delete voiceover recording">${ic("trash")}Remove</button>
+            </div>
+          ` : ""}
+
+          <div class="row" style="gap:6px;flex-wrap:wrap">
+            <button class="btn primary sm" data-act="openprompter">${ic("mic")}Teleprompter & Record</button>
+            <label class="btn sm" style="cursor:pointer;margin:0">
+              ${ic("up")}Import Audio
+              <input type="file" id="vo_file_input" accept="audio/*,video/*" style="display:none">
+            </label>
+          </div>
+
+          <details style="margin-top:8px;font-size:12px;color:var(--dim)">
+            <summary style="cursor:pointer">Optional AI Voice Generator</summary>
+            <div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:6px;border:1px solid var(--line)">
+              <div style="font-size:11px;background:#FFF4E6;color:#7A3E0C;padding:4px 8px;border-radius:4px;margin-bottom:6px">
+                <b>⚠️ AI voice: higher monetisation risk</b>
+              </div>
+              <div class="row" style="gap:6px;align-items:center">
+                <select id="tts_engine" style="font-size:12px;padding:3px 6px">
+                  <option value="free">Free (Google Voice)</option>
+                  <option value="openai">OpenAI TTS (tts-1 alloy)</option>
+                </select>
+                <button class="btn sm" data-act="gentts">Generate AI Voice</button>
+              </div>
+            </div>
+          </details>
+        </div>
+        <!-- Originality Checklist (Phase 4) -->
+        <div style="margin-bottom:14px;background:var(--muted);padding:12px;border-radius:var(--r-sm)">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <h4 style="margin:0;font-size:13px;display:flex;align-items:center;gap:6px">Originality Checklist</h4>
+            ${c.originality?.passed ? `
+              <span class="count ok" style="font-weight:700">✓ Original (Pass)</span>
+            ` : `
+              <span class="count bad" style="font-weight:700">⚠ Originality (Fail)</span>
+            `}
+          </div>
+          <div style="font-size:12px;display:flex;flex-direction:column;gap:4px">
+            <div style="display:flex;justify-content:space-between">
+              <span>Voiceover present:</span>
+              <b>${c.originality?.voiceover_present ? "✓ Yes" : "✗ Missing"}</b>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span>Voiceover coverage (≥40%):</span>
+              <b>${c.originality?.voiceover_coverage ? `✓ ${Math.round((c.originality?.coverage_ratio || 0) * 100)}%` : `✗ ${Math.round((c.originality?.coverage_ratio || 0) * 100)}% (<40%)`}</b>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+              <span>Non-identical edit:</span>
+              <b>${c.originality?.not_identical ? "✓ Non-identical" : "✗ Raw duplicate"}</b>
+            </div>
+          </div>
+        </div>
         <h3>Post it</h3>
+        ${!j.permission?.confirmed ? `<div style="background:var(--bad-soft);color:var(--bad);padding:8px 12px;border-radius:var(--r-sm);font-size:12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px"><span><b>Posting blocked:</b> Source permission is not confirmed.</span><button class="btn sm" data-act="perm" data-j="${j.id}">Review Permission</button></div>` : ""}
+        ${c.duplicate?.is_duplicate ? `<div style="background:#FFF4E6;color:#7A3E0C;padding:8px 12px;border-radius:var(--r-sm);font-size:12px;margin-bottom:8px"><b>⚠️ Duplicate Moment:</b> ${esc(c.duplicate.reason)}</div>` : ""}
         <div id="dposts" class="row" style="gap:4px"></div>
         ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
-          <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}Post now</button><button class="btn" data-act="postqueue">Add to queue</button></div>`
+          <div class="row"><button class="btn primary" data-act="postnow" ${!j.permission?.confirmed ? "disabled title=\"Permission needed before posting\"" : ""}>${ic("send")}Post now</button><button class="btn" data-act="postqueue" ${!j.permission?.confirmed ? "disabled title=\"Permission needed before posting\"" : ""}>Add to queue</button></div>`
           : `<p class="help">No accounts connected yet. Connect one in Settings.</p>`}
         <div class="row" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--line)">
           ${c.status === "done" ? `<a class="btn" href="${m}${esc(c.file)}?download=1">${ic("down")}Download</a>` : ""}
@@ -2167,6 +2324,67 @@ function drawClipDlg(full) {
 }
 $("#clipdlg").addEventListener("close", () => { $("#clipdlg").innerHTML = ""; D.jid = null; });
 $("#clipdlg").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
+
+function openPerm(jid) {
+  const j = jobOf(jid);
+  if (!j) return;
+  const p = j.permission || {};
+  const dlg = $("#permdlg");
+  const autoCredit = () => {
+    const cr = ($("#perm_creator")?.value || "").trim();
+    const u = ($("#perm_url")?.value || "").trim();
+    const custom = ($("#perm_credit")?.value || "").trim();
+    if (custom) return custom;
+    if (cr && u) return `Original video by ${cr}: ${u}`;
+    if (cr) return `Credit: ${cr}`;
+    if (u) return `Source: ${u}`;
+    return "PeakCut Pro";
+  };
+  dlg.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <h3>Source &amp; Permission Manager</h3>
+      <button class="btn icon ghost" data-act="permclose" aria-label="Close">${ic("x")}</button>
+    </div>
+    <p class="sub" style="margin-bottom:14px">Per-source video rights, permission verification, and credit settings.</p>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <label class="f">Source URL
+        <input id="perm_url" value="${esc(p.source_url || j.source?.url || "")}" placeholder="https://youtube.com/watch?v=...">
+      </label>
+      <label class="f">Original Creator / Channel Name
+        <input id="perm_creator" value="${esc(p.creator_name || j.uploader || "")}" placeholder="e.g. StreamerName">
+      </label>
+      <label class="f">Custom Credit Text (Optional)
+        <input id="perm_credit" value="${esc(p.credit_text || "")}" placeholder="Leave blank to auto-build">
+      </label>
+      <div style="background:var(--muted);padding:8px 12px;border-radius:var(--r-sm);font-size:12px">
+        <span style="color:var(--dim)">Credit Line Preview:</span>
+        <b id="perm_preview" style="display:block;margin-top:2px;color:var(--brand-ink)">${esc(p.credit_line || autoCredit())}</b>
+      </div>
+      <label class="ck" style="font-weight:600;margin-top:2px">
+        <input type="checkbox" id="perm_confirmed" ${p.confirmed ? "checked" : ""}>
+        Permission Confirmed (Posting is blocked until confirmed)
+      </label>
+      <label class="f">Permission Proof Note
+        <textarea id="perm_note" rows="2" placeholder="Permission notes, email excerpt, license info, or chat agreements">${esc(p.proof_note || "")}</textarea>
+      </label>
+      <label class="f">Permission Proof Screenshot / Document
+        <input type="file" id="perm_file" accept="image/*,.pdf,.txt">
+      </label>
+      ${p.proof_file ? `<div style="font-size:12px"><a href="/media/${j.id}/proof" target="_blank" class="btn sm">${ic("link")}View Current Proof (${esc(p.proof_file)})</a></div>` : ""}
+      <div class="row" style="margin-top:10px;justify-content:flex-end">
+        <button class="btn" data-act="permclose">Cancel</button>
+        <button class="btn primary" data-act="permsave" data-j="${j.id}">${ic("check")}Save Permission</button>
+      </div>
+    </div>
+  `;
+  const updatePrev = () => { const el = $("#perm_preview"); if (el) el.textContent = autoCredit(); };
+  $("#perm_creator")?.addEventListener("input", updatePrev);
+  $("#perm_url")?.addEventListener("input", updatePrev);
+  $("#perm_credit")?.addEventListener("input", updatePrev);
+  dlg.showModal();
+}
+$("#permdlg").addEventListener("close", () => { $("#permdlg").innerHTML = ""; });
+$("#permdlg").addEventListener("click", e => { if (e.target === e.currentTarget) e.currentTarget.close(); });
 
 /* ============================================================ render + polling */
 function render() {
@@ -2464,7 +2682,146 @@ document.addEventListener("click", async e => {
       });
       await send(`/api/jobs/${D.jid}/clips/${D.cid}/render`, body); toast("Re-making the clip…", "ok"); return tick();
     }
+    if (a === "savemeta") {
+      const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+      const title = $(`#clipdlg input[data-f="title"]`)?.value || "";
+      const description = $(`#clipdlg textarea[data-f="description"]`)?.value || "";
+      const hashtags = $(`#clipdlg input[data-f="hashtags"]`)?.value || "";
+      const hook = $(`#clipdlg input[data-f="hook"]`)?.value || "";
+      const res = await send(`/api/jobs/${D.jid}/clips/${D.cid}/metadata`, {
+        title, description, hashtags, hook
+      }, "PUT");
+      if (curClip && res.metadata) {
+        Object.assign(curClip, res.metadata);
+      }
+      toast("Post text saved", "ok");
+      return;
+    }
+    if (a === "perm") return openPerm(d.j);
+    if (a === "permclose") return $("#permdlg").close();
+    if (a === "permsave") {
+      const jid = d.j;
+      const body = {
+        source_url: $("#perm_url").value,
+        creator_name: $("#perm_creator").value,
+        credit_text: $("#perm_credit").value,
+        confirmed: $("#perm_confirmed").checked,
+        proof_note: $("#perm_note").value
+      };
+      const fi = $("#perm_file");
+      if (fi && fi.files.length) {
+        const fd = new FormData();
+        fd.append("file", fi.files[0]);
+        await fetch(`/api/jobs/${jid}/permission/proof`, {method: "POST", body: fd});
+      }
+      await send(`/api/jobs/${jid}/permission`, body);
+      $("#permdlg").close();
+      toast("Permission updated", "ok");
+      return tick();
+    }
+    if (a === "gencomm") {
+      b.disabled = true;
+      try {
+        const tone = $("#comm_tone")?.value || "hype";
+        const script_style = $("#comm_style")?.value || "devanagari_hindi";
+        const speaking_pace = Number($("#comm_pace")?.value) || 2.3;
+        const channel_voice = $("#comm_voice")?.value || "";
+        toast("Generating 3 commentary variants…", "ok");
+        const res = await send(`/api/jobs/${D.jid}/clips/${D.cid}/commentary`, {
+          tone, script_style, speaking_pace, channel_voice
+        });
+        const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+        if (curClip) curClip.commentary = res.commentary;
+        drawClipDlg(true);
+        toast("Commentary generated!", "ok");
+      } finally { b.disabled = false; }
+      return;
+    }
+    if (a === "pickcomm") {
+      const idx = Number(d.idx);
+      const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+      if (curClip?.commentary) {
+        curClip.commentary.selected_variant = idx;
+        await send(`/api/jobs/${D.jid}/clips/${D.cid}/commentary`, {selected_variant: idx}, "PUT");
+        drawClipDlg(true);
+      }
+      return;
+    }
+    if (a === "applysafestart") {
+      const newStart = Number(d.start);
+      const startInp = $(`#clipdlg input[data-f="start"]`);
+      if (startInp) {
+        startInp.value = newStart;
+        toast(`Start shifted to ${newStart}s. Click 'Save and re-make' to render.`, "ok");
+      }
+      return;
+    }
+    if (a === "savecommline") {
+      const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+      if (curClip?.commentary?.variants) {
+        const sIdx = curClip.commentary.selected_variant || 0;
+        const sv = curClip.commentary.variants[sIdx];
+        $$(`#clipdlg input[data-comm-line]`).forEach(inp => {
+          const li = Number(inp.dataset.commLine);
+          if (sv.lines[li]) sv.lines[li].text = inp.value;
+        });
+        await send(`/api/jobs/${D.jid}/clips/${D.cid}/commentary`, {
+          selected_variant: sIdx,
+          variants: curClip.commentary.variants
+        }, "PUT");
+        toast("Script edits saved", "ok");
+      }
+      return;
+    }
+    if (a === "applycomm") {
+      const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+      if (curClip?.commentary?.variants) {
+        const sIdx = curClip.commentary.selected_variant || 0;
+        const sv = curClip.commentary.variants[sIdx];
+        await send(`/api/jobs/${D.jid}/clips/${D.cid}/commentary`, {
+          selected_variant: sIdx,
+          variants: curClip.commentary.variants,
+          apply_to_clip: true
+        }, "PUT");
+        if (sv.hook && $(`#clipdlg input[data-f="hook"]`)) $(`#clipdlg input[data-f="hook"]`).value = sv.hook;
+        if (sv.title && $(`#clipdlg input[data-f="title"]`)) $(`#clipdlg input[data-f="title"]`).value = sv.title;
+        if (sv.description && $(`#clipdlg textarea[data-f="description"]`)) $(`#clipdlg textarea[data-f="description"]`).value = sv.description;
+        if (sv.hashtags && $(`#clipdlg input[data-f="hashtags"]`)) {
+          $(`#clipdlg input[data-f="hashtags"]`).value = (Array.isArray(sv.hashtags) ? sv.hashtags : []).map(h => '#' + String(h).replace(/^#/, '')).join(' ');
+        }
+        toast("Applied hook, title, description & hashtags to clip", "ok");
+      }
+      return;
+    }
+    if (a === "openprompter") {
+      openPrompter(D.jid, D.cid);
+      return;
+    }
+    if (a === "delvo") {
+      if (!await ask("Delete voiceover?", "Remove the voiceover recording and restore original game audio?", "Delete")) return;
+      await send(`/api/jobs/${D.jid}/clips/${D.cid}/voiceover`, {}, "DELETE");
+      const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+      if (curClip) curClip.voiceover = {has_voiceover: false};
+      drawClipDlg(true);
+      toast("Voiceover removed", "ok");
+      return;
+    }
+    if (a === "gentts") {
+      b.disabled = true;
+      try {
+        const prov = $("#tts_engine")?.value || "free";
+        toast("Generating AI voiceover...", "ok");
+        const res = await send(`/api/jobs/${D.jid}/clips/${D.cid}/voiceover/tts`, {provider: prov});
+        const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+        if (curClip) curClip.voiceover = res.voiceover;
+        drawClipDlg(true);
+        toast(`AI voice generated (${res.voiceover?.duration}s)!`, "ok");
+      } finally { b.disabled = false; }
+      return;
+    }
     if (a === "postnow" || a === "postqueue") {
+      const j = jobOf(D.jid);
+      if (!j?.permission?.confirmed) return toast("Posting is blocked: permission must be confirmed first.", "bad");
       const accs = $$("#clipdlg [data-pacc]:checked").map(i => i.value);
       if (!accs.length) return toast("Tick at least one account first.", "bad");
       if (a === "postnow" && !await ask("Post now?", `This clip goes to ${accs.length} account${accs.length > 1 ? "s" : ""} straight away.`, "Post now")) return;
@@ -2473,6 +2830,281 @@ document.addEventListener("click", async e => {
     }
   } catch (err) { b.disabled = false; toast(err.message, "bad"); }
 });
+
+// Teleprompter & Voiceover Studio Logic
+let mediaRecorder = null;
+let recordedChunks = [];
+let prompterStream = null;
+let activeRecordingLine = -1;
+
+function formatPrompterTime(secs) {
+  const s = Math.max(0, secs);
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(1);
+  return String(m).padStart(2, "0") + ":" + (rem < 10 ? "0" : "") + rem;
+}
+
+function openPrompter(jid, cid) {
+  const j = jobOf(jid);
+  if (!j) return;
+  const c = (j.clips || []).find(x => x.id === cid);
+  if (!c) return;
+
+  const comm = c.commentary || {};
+  const variants = comm.variants || [];
+  const sIdx = comm.selected_variant || 0;
+  const curVar = variants[sIdx] || variants[0] || {hook: "", lines: [], outro: ""};
+  const lines = curVar.lines || [];
+  const m = `/media/${esc(j.id)}/`;
+  const videoSrc = c.file ? `${m}${esc(c.file)}` : "";
+
+  const dlg = $("#prompterdlg");
+  dlg.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid var(--line);padding-bottom:10px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:22px">🎙️</span>
+        <div>
+          <h2 style="font-size:16px;font-weight:700;margin:0">Voiceover Teleprompter</h2>
+          <span style="font-size:11px;color:var(--dim)">${esc(c.title || "Clip")} (${Math.round(c.end - c.start)}s)</span>
+        </div>
+      </div>
+      <button class="icon-btn" onclick="$('#prompterdlg').close()">${ic("x")}</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1.25fr;gap:16px;align-items:start">
+      <div>
+        <div style="position:relative;background:#000;border-radius:var(--r-sm);overflow:hidden;aspect-ratio:9/16;max-height:400px;display:flex;align-items:center;justify-content:center">
+          ${videoSrc ? `
+            <video id="p_vid" src="${videoSrc}" playsinline style="width:100%;height:100%;object-fit:contain"></video>
+          ` : `<div style="color:#aaa;font-size:12px;padding:20px;text-align:center">Clip video will preview here</div>`}
+          <div id="p_count_overlay" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,.75);color:#fff;font-size:64px;font-weight:800;align-items:center;justify-content:center">3</div>
+        </div>
+
+        <div style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;font-size:12px;background:var(--muted);padding:6px 10px;border-radius:6px">
+          <label style="display:flex;align-items:center;gap:6px">
+            Game Vol:
+            <input type="range" id="p_vol" min="0" max="100" value="15" style="width:75px">
+            <span id="p_vol_val">15%</span>
+          </label>
+          <span id="p_time_txt" style="font-family:monospace;font-weight:700">00:00.0</span>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;max-height:450px">
+        <div style="font-size:12px;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between">
+          <span>Script lines highlight as you speak:</span>
+          <span>${lines.length} lines</span>
+        </div>
+
+        <div id="p_lines_scroll" style="overflow-y:auto;max-height:340px;display:flex;flex-direction:column;gap:6px;padding-right:4px">
+          ${curVar.hook ? `
+            <div style="font-size:12px;padding:6px 10px;background:var(--bg-sub);border-radius:6px;border-left:3px solid var(--brand)">
+              <b>Hook:</b> ${esc(curVar.hook)}
+            </div>
+          ` : ""}
+          ${lines.map((l, i) => `
+            <div class="prompter-line" id="pline_${i}" data-start="${l.start}" data-end="${l.end}">
+              <div style="flex:1">
+                <div class="p-time">${l.start}s – ${l.end}s</div>
+                <div class="p-text">${esc(l.text)}</div>
+              </div>
+              <button class="btn sm" data-rec-line="${i}" style="margin-left:6px;padding:3px 6px;font-size:11px" title="Record only this line">🎙️ Line</button>
+            </div>
+          `).join("")}
+          ${curVar.outro ? `
+            <div style="font-size:12px;padding:6px 10px;background:var(--bg-sub);border-radius:6px;border-left:3px solid var(--good)">
+              <b>Outro:</b> ${esc(curVar.outro)}
+            </div>
+          ` : ""}
+        </div>
+
+        <div style="margin-top:auto;padding-top:10px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between">
+          <button id="p_rec_btn" class="btn primary" style="background:#D3343F;color:#fff;border-color:#D3343F">
+            <span id="p_rec_pulse" style="display:inline-block;width:10px;height:10px;background:#fff;border-radius:50%;margin-right:6px"></span>
+            <span id="p_rec_lbl">Record Full Take</span>
+          </button>
+          <span id="p_status_lbl" style="font-size:12px;color:var(--dim)">Ready</span>
+          <button class="btn" onclick="$('#prompterdlg').close()">Done</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  dlg.showModal();
+
+  const vid = $("#p_vid");
+  const vol = $("#p_vol");
+  const volVal = $("#p_vol_val");
+  const timeTxt = $("#p_time_txt");
+  const recBtn = $("#p_rec_btn");
+  const countOvl = $("#p_count_overlay");
+
+  if (vid) {
+    vid.volume = 0.15;
+    vol?.addEventListener("input", () => {
+      vid.volume = vol.value / 100;
+      volVal.textContent = vol.value + "%";
+    });
+
+    vid.addEventListener("timeupdate", () => {
+      timeTxt.textContent = formatPrompterTime(vid.currentTime);
+      const cur = vid.currentTime;
+      $$(".prompter-line").forEach(el => {
+        const s = parseFloat(el.dataset.start);
+        const e = parseFloat(el.dataset.end);
+        const isActive = cur >= s && cur <= e;
+        el.classList.toggle("active", isActive);
+      });
+    });
+
+    vid.addEventListener("ended", () => {
+      if (mediaRecorder && mediaRecorder.state === "recording") {
+        stopPrompterRecording(jid, cid);
+      }
+    });
+  }
+
+  $$("[data-rec-line]").forEach(b => {
+    b.addEventListener("click", () => {
+      const lineIdx = parseInt(b.dataset.recLine, 10);
+      const l = lines[lineIdx];
+      if (!l) return;
+      startPrompterRecording(jid, cid, lineIdx, l.start, l.end);
+    });
+  });
+
+  recBtn?.addEventListener("click", () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      stopPrompterRecording(jid, cid);
+    } else {
+      startPrompterRecording(jid, cid, -1, 0, (c.end - c.start) || 30);
+    }
+  });
+
+  dlg.addEventListener("close", () => {
+    if (vid) vid.pause();
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+      try { mediaRecorder.stop(); } catch {}
+    }
+    if (prompterStream) {
+      prompterStream.getTracks().forEach(t => t.stop());
+      prompterStream = null;
+    }
+  }, { once: true });
+}
+
+async function startPrompterRecording(jid, cid, lineIdx, startSec, endSec) {
+  activeRecordingLine = lineIdx;
+  const vid = $("#p_vid");
+  const recLbl = $("#p_rec_lbl");
+  const statusLbl = $("#p_status_lbl");
+  const countOvl = $("#p_count_overlay");
+
+  try {
+    if (!prompterStream) {
+      prompterStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+  } catch (err) {
+    return toast("Microphone access denied: " + err.message, "bad");
+  }
+
+  if (countOvl) {
+    countOvl.style.display = "flex";
+    for (let count = 3; count > 0; count--) {
+      countOvl.textContent = String(count);
+      await new Promise(r => setTimeout(r, 600));
+    }
+    countOvl.style.display = "none";
+  }
+
+  recordedChunks = [];
+  try {
+    mediaRecorder = new MediaRecorder(prompterStream);
+  } catch (e) {
+    mediaRecorder = new MediaRecorder(prompterStream, { mimeType: "audio/webm" });
+  }
+
+  mediaRecorder.ondataavailable = e => {
+    if (e.data && e.data.size > 0) recordedChunks.push(e.data);
+  };
+
+  mediaRecorder.onstop = async () => {
+    const audioBlob = new Blob(recordedChunks, { type: "audio/webm" });
+    if (statusLbl) statusLbl.textContent = "Processing audio...";
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "recording.webm");
+    formData.append("line_index", String(activeRecordingLine));
+
+    try {
+      const res = await fetch(`/api/jobs/${jid}/clips/${cid}/voiceover`, {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload failed");
+      const curClip = jobOf(jid)?.clips.find(x => x.id === cid);
+      if (curClip) curClip.voiceover = data.voiceover;
+      toast(`Voiceover saved (${data.voiceover?.duration}s)!`, "ok");
+      if (statusLbl) statusLbl.textContent = `Saved (${data.voiceover?.duration}s)`;
+      drawClipDlg(true);
+    } catch (err) {
+      toast("Voiceover upload failed: " + err.message, "bad");
+      if (statusLbl) statusLbl.textContent = "Upload failed";
+    }
+  };
+
+  mediaRecorder.start();
+  if (recLbl) recLbl.textContent = "Stop Recording";
+  if (statusLbl) statusLbl.textContent = activeRecordingLine >= 0 ? `Recording Line ${activeRecordingLine + 1}...` : "Recording Full Take...";
+
+  if (vid) {
+    vid.currentTime = startSec || 0;
+    vid.play();
+    if (activeRecordingLine >= 0) {
+      const durationMs = Math.max(500, (endSec - startSec) * 1000);
+      setTimeout(() => {
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+          stopPrompterRecording(jid, cid);
+        }
+      }, durationMs);
+    }
+  }
+}
+
+function stopPrompterRecording(jid, cid) {
+  const vid = $("#p_vid");
+  const recLbl = $("#p_rec_lbl");
+  if (vid) vid.pause();
+  if (mediaRecorder && mediaRecorder.state === "recording") {
+    mediaRecorder.stop();
+  }
+  if (recLbl) recLbl.textContent = "Record Full Take";
+}
+
+document.addEventListener("change", async e => {
+  if (e.target && e.target.id === "vo_file_input") {
+    const file = e.target.files[0];
+    if (!file || !D.jid || !D.cid) return;
+    toast("Importing and cleaning audio file...", "ok");
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const res = await fetch(`/api/jobs/${D.jid}/clips/${D.cid}/voiceover/import`, {
+        method: "POST",
+        body: fd
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Import failed");
+      const curClip = jobOf(D.jid)?.clips.find(x => x.id === D.cid);
+      if (curClip) curClip.voiceover = data.voiceover;
+      drawClipDlg(true);
+      toast(`Imported audio (${data.voiceover?.duration}s)!`, "ok");
+    } catch (err) {
+      toast(err.message, "bad");
+    }
+  }
+});
+
 
 $("#collapseBtn").innerHTML = ic("sidebar"); $("#menuBtn").innerHTML = ic("menu");
 try { if (localStorage.getItem("mini")) $("#app").classList.add("mini"); } catch {}

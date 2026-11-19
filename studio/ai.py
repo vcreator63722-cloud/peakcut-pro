@@ -441,3 +441,221 @@ def _anthropic(model, prompt, schema, timeout=None):
     text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
     u = data.get("usage") or {}
     return _parse(text), int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0)
+
+
+# ---------------------------------------------------------------- multi-frame / vision commentary calls
+COMMENTARY_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "safe_start": {
+            "type": "OBJECT",
+            "properties": {
+                "flagged": {"type": "BOOLEAN"},
+                "reason": {"type": "STRING"},
+                "suggested_start": {"type": "NUMBER"}
+            },
+            "required": ["flagged", "reason", "suggested_start"]
+        },
+        "variants": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "variant_id": {"type": "INTEGER"},
+                    "hook": {"type": "STRING"},
+                    "lines": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "start": {"type": "NUMBER"},
+                                "end": {"type": "NUMBER"},
+                                "text": {"type": "STRING"}
+                            },
+                            "required": ["start", "end", "text"]
+                        }
+                    },
+                    "outro": {"type": "STRING"},
+                    "title": {"type": "STRING"},
+                    "description": {"type": "STRING"},
+                    "hashtags": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"}
+                    }
+                },
+                "required": ["variant_id", "hook", "lines", "outro", "title", "description", "hashtags"]
+            }
+        }
+    },
+    "required": ["safe_start", "variants"]
+}
+
+
+def call_with_frames(model: str, prompt: str, schema: dict, frames: list | None = None, timeout: float | None = None) -> tuple:
+    """Ask one model with text prompt, JSON schema, and optional video frames.
+    Returns (parsed JSON dict, tokens sent, tokens received, warning string).
+    If vision fails or is unsupported by the model, falls back to text-only with a warning."""
+    if not ready():
+        return {}, 0, 0, "AI service is not configured or ready."
+    if not frames:
+        out, tin, tout = call(model, prompt, schema, timeout=timeout)
+        return out, tin, tout, ""
+
+    how = PROVIDERS.get(provider(), ("", "", "openai"))[2]
+    try:
+        if how == "gemini":
+            parts = [{"text": prompt}]
+            for img in frames[:16]:
+                parts.append({"inline_data": {"mimeType": "image/jpeg", "data": base64.b64encode(img).decode()}})
+            body = {
+                "contents": [{"role": "user", "parts": parts}],
+                "generationConfig": {"temperature": 0.4, "responseMimeType": "application/json", "responseSchema": schema}
+            }
+            r = httpx.post(f"{base_url()}/{model}:generateContent", json=body, headers={"x-goog-api-key": key()}, timeout=timeout or 180)
+            if r.status_code != 200:
+                _fail(r, model)
+            data = r.json()
+            text = "".join(p.get("text", "") for p in data["candidates"][0]["content"]["parts"])
+            u = data.get("usageMetadata", {})
+            sent = int(u.get("promptTokenCount") or 0)
+            wrote = max(0, int(u.get("totalTokenCount") or 0) - sent)
+            return json.loads(text), sent, wrote, ""
+
+        if how == "anthropic":
+            content = []
+            for img in frames[:16]:
+                content.append({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": base64.b64encode(img).decode()}})
+            content.append({"type": "text", "text": _wrapped(prompt, schema)})
+            body = {"model": model, "max_tokens": 8192, "messages": [{"role": "user", "content": content}]}
+            r = httpx.post(f"{base_url()}/messages", json=body, timeout=timeout or 180,
+                           headers={"x-api-key": key(), "anthropic-version": "2023-06-01"})
+            if r.status_code != 200:
+                _fail(r, model)
+            data = r.json()
+            text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+            u = data.get("usage") or {}
+            return _parse(text), int(u.get("input_tokens") or 0), int(u.get("output_tokens") or 0), ""
+
+        # Default OpenAI format
+        content = [{"type": "text", "text": _wrapped(prompt, schema)}]
+        for img in frames[:16]:
+            content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(img).decode(), "detail": "low"}})
+        headers = {"Authorization": f"Bearer {key()}"} if key() else {}
+        body = {"model": model, "messages": [{"role": "user", "content": content}], "stream": False,
+                "response_format": {"type": "json_object"}}
+        r = httpx.post(f"{base_url()}/chat/completions", json=body, headers=headers, timeout=timeout or 180)
+        if r.status_code != 200:
+            _fail(r, model)
+        data = _openai_body(r)
+        u = data.get("usage") or {}
+        return _parse(data["choices"][0]["message"].get("content")), int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0), ""
+
+    except Exception as e:
+        warning = f"Vision not supported by provider/model ({str(e)[:80]}); fell back to transcript-only."
+        try:
+            out, tin, tout = call(model, prompt + "\n\n(Note: Video frames could not be processed; generate commentary using the audio transcript alone.)", schema, timeout=timeout)
+            return out, tin, tout, warning
+        except Exception:
+            return {}, 0, 0, warning
+
+
+def generate_commentary(prompt: str, frames: list | None = None, duration: float = 30.0,
+                        speaking_pace: float = 2.3, timeout: float | None = None) -> tuple:
+    """Generate 3 commentary script variants with safe-start check and pacing enforcement.
+    Returns (commentary_dict, tokens_in, tokens_out, warning)."""
+    ms = models()
+    model = ms[0] if ms else "gemini-2.5-flash"
+    out, tin, tout, warn = call_with_frames(model, prompt, COMMENTARY_SCHEMA, frames=frames, timeout=timeout)
+
+    # Validate output structure
+    if not isinstance(out, dict):
+        out = {"safe_start": {"flagged": False, "reason": "", "suggested_start": 0.0}, "variants": []}
+    variants = out.get("variants") or []
+    if not isinstance(variants, list):
+        variants = []
+
+    # Pace enforcement & auto-retry if script is too long
+    max_words = max(8, int(duration * speaking_pace))
+    tightened_variants = []
+    for idx, var in enumerate(variants[:3]):
+        lines = var.get("lines") or []
+        words_count = sum(len(str(line.get("text", "")).split()) for line in lines)
+        if words_count > max_words + 4:
+            # Auto-retry tightening this variant
+            retry_prompt = (
+                f"Tighten and shorten this commentary script so its total word count is AT MOST {max_words} words "
+                f"to strictly fit a {duration:.1f}s video at {speaking_pace} words/second.\n\n"
+                f"Original Variant:\n{json.dumps(var, ensure_ascii=False)}\n\n"
+                "Return a JSON object with this single variant matching the variant schema."
+            )
+            v_schema = COMMENTARY_SCHEMA["properties"]["variants"]["items"]
+            try:
+                t_var, r_tin, r_tout = call(model, retry_prompt, v_schema, timeout=timeout)
+                tin += r_tin
+                tout += r_tout
+                if isinstance(t_var, dict) and t_var.get("lines"):
+                    var = t_var
+            except Exception:
+                pass
+        tightened_variants.append(var)
+
+    out["variants"] = tightened_variants
+    return out, tin, tout, warn
+
+
+def generate_tts(text: str, provider: str = "free", voice: str = "alloy") -> bytes:
+    """Generate spoken audio bytes from text.
+    - provider 'free': chunked Google Translate TTS endpoint (no key required).
+    - provider 'openai': OpenAI /audio/speech endpoint (uses configured key).
+    """
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Text for TTS cannot be empty.")
+
+    if provider == "free":
+        import urllib.parse
+        # Split into small phrase chunks (< 120 chars) to respect endpoint limits
+        words = text.split()
+        chunks = []
+        cur, cur_len = [], 0
+        for w in words:
+            if cur_len + len(w) + 1 > 110 and cur:
+                chunks.append(" ".join(cur))
+                cur, cur_len = [w], len(w)
+            else:
+                cur.append(w)
+                cur_len += len(w) + 1
+        if cur:
+            chunks.append(" ".join(cur))
+
+        audio_parts = []
+        for chunk in chunks:
+            q = urllib.parse.quote(chunk)
+            url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=hi&client=tw-ob&q={q}"
+            headers = {"User-Agent": "Mozilla/5.0"}
+            r = httpx.get(url, headers=headers, timeout=25)
+            if r.status_code == 200:
+                audio_parts.append(r.content)
+            else:
+                raise AIError(f"Free TTS failed: HTTP {r.status_code}")
+        return b"".join(audio_parts)
+
+    if provider == "openai":
+        k = key()
+        if not k:
+            raise AIError("OpenAI API key is required for API voice TTS. Set it under Settings, AI.")
+        b_url = base_url() or "https://api.openai.com/v1"
+        url = f"{b_url}/audio/speech"
+        body = {
+            "model": "tts-1",
+            "input": text,
+            "voice": voice or "alloy"
+        }
+        headers = {"Authorization": f"Bearer {k}"}
+        r = httpx.post(url, json=body, headers=headers, timeout=60)
+        if r.status_code != 200:
+            raise AIError(f"OpenAI TTS failed: HTTP {r.status_code} {r.text[:200]}")
+        return r.content
+
+    raise ValueError(f"Unknown TTS provider: {provider}")
+
