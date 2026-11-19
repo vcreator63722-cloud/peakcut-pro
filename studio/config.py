@@ -159,7 +159,7 @@ def user_dir(uid: str) -> Path:
 
 # ---------------------------------------------------------------- the site
 HOST = env("PEAKCUT_HOST", "127.0.0.1")
-PORT = int(env("PEAKCUT_PORT") or "8765")
+PORT = int(env("PEAKCUT_PORT") or env("PORT") or "8765")
 PUBLIC_URL = (env("PEAKCUT_PUBLIC_URL") or f"http://127.0.0.1:{PORT}").rstrip("/")   # e.g. https://peakcut.com
 HTTPS = PUBLIC_URL.startswith("https://")
 SESSION_DAYS = int(env("PEAKCUT_SESSION_DAYS", "30"))
