@@ -1,6 +1,6 @@
-"""Getting video in: link download, probing, audio extraction, loudness."""
 import contextlib
 import json
+import os
 import re
 import subprocess
 import time
@@ -103,7 +103,7 @@ def _ydl(opts):
         "concurrent_fragment_downloads": 4,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "android_vr", "web"],
+                "player_client": ["visionos", "android_vr", "android"],
                 "player_skip": ["configs"],
             }
         },
@@ -145,7 +145,7 @@ def info(url: str) -> dict:
             i = ydl.extract_info(url, download=False)
     except Exception as e:
         if is_youtube(url):
-            fallback_opts = {"extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}}}
+            fallback_opts = {"extractor_args": {"youtube": {"player_client": ["visionos"]}}}
             with _ydl(fallback_opts) as ydl:
                 i = ydl.extract_info(url, download=False)
         else:
@@ -285,7 +285,7 @@ def _safe_download(url: str, base_opts: dict):
             ydl.download([url])
     except Exception as e:
         if is_youtube(url):
-            fallback_opts = {**base_opts, "extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}}}
+            fallback_opts = {**base_opts, "extractor_args": {"youtube": {"player_client": ["visionos"]}}}
             with _ydl(fallback_opts) as ydl:
                 ydl.download([url])
         else:
