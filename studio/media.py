@@ -17,10 +17,10 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # YouTube sometimes refuses a server's downloads altogether ("sign in to confirm you're not a bot"). It is a
 # refusal of the server, not of one video, so once it happens YouTube links are turned away at once for a few
 # minutes, with a clear message, instead of each one waiting to fail. Then the next link simply tries again.
-YT_PAUSE = 600
+YT_PAUSE = 5
 _yt_refused_until = 0.0
 YT_BLOCKED = ("YouTube isn't letting PeakCut download videos right now. Upload the video file instead, or use a "
-              "Twitch or Kick link. YouTube links will be tried again in a few minutes.")
+              "Twitch or Kick link. YouTube links will be tried again in a few moments.")
 _BOT_CHECK = re.compile(r"not a bot|confirm you.?re not|sign in to confirm(?! your age)", re.I)
 
 
@@ -101,8 +101,20 @@ def _ydl(opts):
         "noplaylist": True, "quiet": True, "no_warnings": True, "logger": _Quiet(),
         "extract_flat": "in_playlist", "playlistend": 1, "socket_timeout": 20,
         "concurrent_fragment_downloads": 4,
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "mweb"]}},
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "android_vr", "web"],
+                "player_skip": ["configs"],
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        },
     }
+    proxy = config.env("PEAKCUT_PROXY") or os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+    if proxy:
+        extra["proxy"] = proxy
     cookie_file = config.ROOT / "cookies.txt"
     if cookie_file.exists():
         extra["cookiefile"] = str(cookie_file)
@@ -128,8 +140,16 @@ def _biggest(job_dir: Path, stem: str) -> Path:
 
 def info(url: str) -> dict:
     """Title, channel and length, without downloading anything."""
-    with _youtube_guard(url), _ydl({}) as ydl:
-        i = ydl.extract_info(url, download=False)
+    try:
+        with _youtube_guard(url), _ydl({}) as ydl:
+            i = ydl.extract_info(url, download=False)
+    except Exception as e:
+        if is_youtube(url):
+            fallback_opts = {"extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}}}
+            with _ydl(fallback_opts) as ydl:
+                i = ydl.extract_info(url, download=False)
+        else:
+            raise e
     return {"title": i.get("title") or "", "uploader": i.get("uploader") or i.get("channel") or "",
             "duration": float(i.get("duration") or 0), "is_live": bool(i.get("is_live")),
             "thumbnail": i.get("thumbnail") or "", "kind": i.get("_type") or "video"}
@@ -141,17 +161,20 @@ def youtube_words(url: str):
     if not is_youtube(url):
         return None
     import json
-    with _youtube_guard(url), _ydl({}) as ydl:
-        i = ydl.extract_info(url, download=False)
-        auto = i.get("automatic_captions") or {}
-        key = next((k for k in auto if k.endswith("-orig")), None)
-        if not key and i.get("language") in auto:
-            key = i["language"]
-        track = next((f for f in auto.get(key) or [] if f.get("ext") == "json3" and f.get("url")), None) if key else None
-        if not track:
-            return None
-        raw = ydl.urlopen(track["url"]).read(40_000_000)
-    return _caption_words(json.loads(raw)), key.replace("-orig", "")
+    try:
+        with _youtube_guard(url), _ydl({}) as ydl:
+            i = ydl.extract_info(url, download=False)
+            auto = i.get("automatic_captions") or {}
+            key = next((k for k in auto if k.endswith("-orig")), None)
+            if not key and i.get("language") in auto:
+                key = i["language"]
+            track = next((f for f in auto.get(key) or [] if f.get("ext") == "json3" and f.get("url")), None) if key else None
+            if not track:
+                return None
+            raw = ydl.urlopen(track["url"]).read(40_000_000)
+        return _caption_words(json.loads(raw)), key.replace("-orig", "")
+    except Exception:
+        return None
 
 
 def youtube_english_words(url: str):
@@ -160,18 +183,21 @@ def youtube_english_words(url: str):
     if not is_youtube(url):
         return None
     import json
-    with _youtube_guard(url), _ydl({}) as ydl:
-        i = ydl.extract_info(url, download=False)
-        tracks = []
-        for group in (i.get("subtitles") or {}, i.get("automatic_captions") or {}):
-            for k in ("en", "en-US", "en-GB"):
-                tracks.append(next((f for f in group.get(k) or [] if f.get("ext") == "json3" and f.get("url")), None))
-        track = next((t for t in tracks if t), None)
-        if not track:
-            return None
-        raw = ydl.urlopen(track["url"]).read(40_000_000)
-    words = _caption_words(json.loads(raw))
-    return words or None
+    try:
+        with _youtube_guard(url), _ydl({}) as ydl:
+            i = ydl.extract_info(url, download=False)
+            tracks = []
+            for group in (i.get("subtitles") or {}, i.get("automatic_captions") or {}):
+                for k in ("en", "en-US", "en-GB"):
+                    tracks.append(next((f for f in group.get(k) or [] if f.get("ext") == "json3" and f.get("url")), None))
+            track = next((t for t in tracks if t), None)
+            if not track:
+                return None
+            raw = ydl.urlopen(track["url"]).read(40_000_000)
+        words = _caption_words(json.loads(raw))
+        return words or None
+    except Exception:
+        return None
 
 
 def _caption_words(data: dict) -> list:
@@ -253,6 +279,19 @@ def save_thumb(job_dir: Path, url: str = "", video: Path = None) -> bool:
     return False
 
 
+def _safe_download(url: str, base_opts: dict):
+    try:
+        with _youtube_guard(url), _ydl(base_opts) as ydl:
+            ydl.download([url])
+    except Exception as e:
+        if is_youtube(url):
+            fallback_opts = {**base_opts, "extractor_args": {"youtube": {"player_client": ["android_vr", "web"]}}}
+            with _ydl(fallback_opts) as ydl:
+                ydl.download([url])
+        else:
+            raise e
+
+
 def download_audio(url: str, job_dir: Path, on_progress=None) -> Path:
     """Audio only: a few seconds even for long videos, and all the AI needs to pick clips."""
     def hook(d):
@@ -260,17 +299,15 @@ def download_audio(url: str, job_dir: Path, on_progress=None) -> Path:
         if on_progress and d.get("status") == "downloading" and total:
             on_progress(d.get("downloaded_bytes", 0) / total)
 
-    with _youtube_guard(url), _ydl({"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
-               "progress_hooks": [hook]}) as ydl:
-        ydl.download([url])
+    _safe_download(url, {"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
+                         "progress_hooks": [hook]})
     return _biggest(job_dir, "audio_src")
 
 
 def download(url: str, job_dir: Path, height=720) -> Path:
     """The whole video. Used for shorter videos, where this is quicker than fetching pieces."""
-    with _youtube_guard(url), _ydl({"format": _video_format(height), "merge_output_format": "mp4",
-                                    "outtmpl": str(job_dir / "source.%(ext)s")}) as ydl:
-        ydl.download([url])
+    _safe_download(url, {"format": _video_format(height), "merge_output_format": "mp4",
+                         "outtmpl": str(job_dir / "source.%(ext)s")})
     return _biggest(job_dir, "source")
 
 
@@ -283,8 +320,7 @@ def download_section(url: str, out_dir: Path, stem: str, start: float, end: floa
             "download_ranges": download_range_func(None, [(max(0.0, start), end)])}
     if exact:
         opts["force_keyframes_at_cuts"] = True
-    with _youtube_guard(url), _ydl(opts) as ydl:
-        ydl.download([url])
+    _safe_download(url, opts)
     return _biggest(out_dir, stem)
 
 
