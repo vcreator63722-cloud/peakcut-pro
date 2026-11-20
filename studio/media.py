@@ -97,10 +97,21 @@ class _Quiet:
 
 def _ydl(opts):
     import yt_dlp
+    extra = {
+        "noplaylist": True, "quiet": True, "no_warnings": True, "logger": _Quiet(),
+        "extract_flat": "in_playlist", "playlistend": 1, "socket_timeout": 20,
+        "concurrent_fragment_downloads": 4,
+        "extractor_args": {"youtube": {"player_client": ["android", "ios", "mweb"]}},
+    }
+    cookie_file = config.ROOT / "cookies.txt"
+    if cookie_file.exists():
+        extra["cookiefile"] = str(cookie_file)
+    elif config.env("PEAKCUT_YOUTUBE_COOKIES"):
+        cpath = config.TMP_DIR / "yt_cookies.txt"
+        cpath.write_text(config.env("PEAKCUT_YOUTUBE_COOKIES"), encoding="utf-8")
+        extra["cookiefile"] = str(cpath)
     # a channel or playlist link is answered as "a list" straight away, never walked video by video
-    return yt_dlp.YoutubeDL({"noplaylist": True, "quiet": True, "no_warnings": True, "logger": _Quiet(),
-                             "extract_flat": "in_playlist", "playlistend": 1, "socket_timeout": 20,
-                             "concurrent_fragment_downloads": 4, **opts})
+    return yt_dlp.YoutubeDL({**extra, **opts})
 
 
 def _video_format(height):
