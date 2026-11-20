@@ -1746,7 +1746,6 @@ function jobHtml(j) {
   const pic = j.thumb ? `<img src="/media/${esc(j.id)}/thumb.jpg" alt="" loading="lazy">` : ic(j.source?.type === "file" ? "film" : "link");
   return `<div class="job-head"><div class="jt"><span class="jthumb">${pic}${j.duration ? `<span class="du">${fmt(j.duration)}</span>` : ""}</span><div style="min-width:0"><h3>${esc(j.title || j.source.name)}</h3><p class="sub">${meta}</p></div></div>
       <div class="row" style="flex-wrap:nowrap;gap:4px">${busy ? "" : `
-        <button class="btn sm ${j.permission?.confirmed ? "good" : "bad"}" data-act="perm" data-j="${j.id}" title="${j.permission?.confirmed ? "Permission Confirmed" : "Permission Needed before posting"}">${j.permission?.confirmed ? ic("check") + " Permission OK" : ic("lock") + " Permission Needed"}</button>
         ${j.clips.some(c => c.status === "done") ? `<button class="btn sm icon ghost" data-act="dlall" data-j="${j.id}" title="Download all clips of this video" aria-label="Download all clips of this video">${ic("down")}</button>` : ""}
         <button class="btn sm icon ghost" data-act="deljob" data-j="${j.id}" title="Delete" aria-label="Delete this video and its clips">${ic("trash")}</button>
         <label class="selck" title="Select this video and its clips"><input type="checkbox" data-sel="j:${j.id}" ${sel().has("j:" + j.id) ? "checked" : ""} aria-label="Select this video"></label>`}</div></div>
@@ -2308,11 +2307,10 @@ function drawClipDlg(full) {
           </div>
         </div>
         <h3>Post it</h3>
-        ${!j.permission?.confirmed ? `<div style="background:var(--bad-soft);color:var(--bad);padding:8px 12px;border-radius:var(--r-sm);font-size:12px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px"><span><b>Posting blocked:</b> Source permission is not confirmed.</span><button class="btn sm" data-act="perm" data-j="${j.id}">Review Permission</button></div>` : ""}
         ${c.duplicate?.is_duplicate ? `<div style="background:#FFF4E6;color:#7A3E0C;padding:8px 12px;border-radius:var(--r-sm);font-size:12px;margin-bottom:8px"><b>⚠️ Duplicate Moment:</b> ${esc(c.duplicate.reason)}</div>` : ""}
         <div id="dposts" class="row" style="gap:4px"></div>
         ${S.accounts.length ? `<div class="row">${S.accounts.map(a => `<label class="ck"><input type="checkbox" data-pacc value="${esc(a.id)}">${esc(a.label)} · ${esc(a.name)}</label>`).join("")}</div>
-          <div class="row"><button class="btn primary" data-act="postnow" ${!j.permission?.confirmed ? "disabled title=\"Permission needed before posting\"" : ""}>${ic("send")}Post now</button><button class="btn" data-act="postqueue" ${!j.permission?.confirmed ? "disabled title=\"Permission needed before posting\"" : ""}>Add to queue</button></div>`
+          <div class="row"><button class="btn primary" data-act="postnow">${ic("send")}Post now</button><button class="btn" data-act="postqueue">Add to queue</button></div>`
           : `<p class="help">No accounts connected yet. Connect one in Settings.</p>`}
         <div class="row" style="margin-top:auto;padding-top:8px;border-top:1px solid var(--line)">
           ${c.status === "done" ? `<a class="btn" href="${m}${esc(c.file)}?download=1">${ic("down")}Download</a>` : ""}
@@ -2362,7 +2360,7 @@ function openPerm(jid) {
       </div>
       <label class="ck" style="font-weight:600;margin-top:2px">
         <input type="checkbox" id="perm_confirmed" ${p.confirmed ? "checked" : ""}>
-        Permission Confirmed (Posting is blocked until confirmed)
+        Permission Confirmed
       </label>
       <label class="f">Permission Proof Note
         <textarea id="perm_note" rows="2" placeholder="Permission notes, email excerpt, license info, or chat agreements">${esc(p.proof_note || "")}</textarea>
@@ -2821,7 +2819,6 @@ document.addEventListener("click", async e => {
     }
     if (a === "postnow" || a === "postqueue") {
       const j = jobOf(D.jid);
-      if (!j?.permission?.confirmed) return toast("Posting is blocked: permission must be confirmed first.", "bad");
       const accs = $$("#clipdlg [data-pacc]:checked").map(i => i.value);
       if (!accs.length) return toast("Tick at least one account first.", "bad");
       if (a === "postnow" && !await ask("Post now?", `This clip goes to ${accs.length} account${accs.length > 1 ? "s" : ""} straight away.`, "Post now")) return;

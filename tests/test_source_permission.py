@@ -70,7 +70,7 @@ try:
         jid = job["id"]
         perm = job.get("permission")
         check("Job has permission dict", isinstance(perm, dict), True)
-        check("Permission confirmed defaults to False", perm.get("confirmed"), False)
+        check("Permission confirmed defaults to True", perm.get("confirmed"), True)
         check("Permission source_url initialized", perm.get("source_url"), "https://youtube.com/watch?v=gameplay1")
         check("Permission credit_line generated", bool(perm.get("credit_line")), True)
 
@@ -78,7 +78,7 @@ try:
     r = client.get(f"/api/jobs/{jid}/permission")
     check("GET permission status 200", r.status_code, 200)
     data = r.json()
-    check("GET permission has confirmed False", data["confirmed"], False)
+    check("GET permission has confirmed True", data["confirmed"], True)
 
     # 6. Test updating permission via POST /api/jobs/{jid}/permission
     r = client.post(f"/api/jobs/{jid}/permission", json={
@@ -142,27 +142,15 @@ try:
             "token": "yt-token"
         })
 
-    # 9. Test: Posting BLOCKED while permission confirmed is False
+    # 9. Test: Posting allowed freely without permission gating
     with ctx.as_user(u.id):
-        # Direct enqueue call should raise ValueError
-        try:
-            posting.enqueue(job_now, clip, ["acc-yt-1"])
-            check("posting.enqueue blocked when unconfirmed", False, True)
-        except ValueError as err:
-            check("posting.enqueue blocked when unconfirmed", "permission confirmed" in str(err), True)
+        queued_direct = posting.enqueue(job_now, clip, ["acc-yt-1"])
+        check("posting.enqueue succeeds without permission gating", len(queued_direct), 1)
 
-    # API call /api/posts should return HTTP 400
+    # API call /api/posts should succeed directly
+    posting._posts.clear()
     r = client.post("/api/posts", json={"job": jid, "clip": "c1", "accounts": ["acc-yt-1"]})
-    check("POST /api/posts blocked with 400 when unconfirmed", r.status_code, 400)
-    check("Error detail mentions permission", "permission confirmed" in r.text.lower(), True)
-
-    # 10. Confirm permission and verify posting is now allowed
-    r = client.post(f"/api/jobs/{jid}/permission", json={"confirmed": True})
-    check("Confirm permission status 200", r.status_code, 200)
-
-    # API call /api/posts should now succeed
-    r = client.post("/api/posts", json={"job": jid, "clip": "c1", "accounts": ["acc-yt-1"]})
-    check("POST /api/posts succeeds when confirmed", r.status_code, 200)
+    check("POST /api/posts succeeds directly (permission gating removed)", r.status_code, 200)
     check("1 post queued", r.json().get("queued"), 1)
 
 finally:

@@ -139,8 +139,8 @@ STATIC_MIN_SECONDS = float(env("PEAKCUT_STATIC_MIN_SECONDS", "6"))
 # recording carries on, so a slow answer costs a check, not the stream.
 LIVE_AI_TIMEOUT = float(env("PEAKCUT_LIVE_AI_TIMEOUT", "45"))
 
-# Require permission to be confirmed before posting clips (Source & Permission Manager)
-REQUIRE_PERMISSION = env("PEAKCUT_REQUIRE_PERMISSION", "1") != "0"
+# Permission requirement is disabled by default for unrestricted posting
+REQUIRE_PERMISSION = env("PEAKCUT_REQUIRE_PERMISSION", "0") == "1"
 COMMENTARY_PACE = float(env("PEAKCUT_COMMENTARY_PACE", "2.3"))
 COMMENTARY_TONE = env("PEAKCUT_COMMENTARY_TONE", "hype")
 TTS_ENABLED = env("PEAKCUT_TTS_ENABLED", "0") == "1"

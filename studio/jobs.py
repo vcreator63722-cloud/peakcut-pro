@@ -235,7 +235,7 @@ def _load_file(f: Path, uid: str):
     perm.setdefault("source_url", job.get("source", {}).get("url") or "")
     perm.setdefault("creator_name", job.get("uploader") or "")
     perm.setdefault("credit_text", "")
-    perm.setdefault("confirmed", False)
+    perm.setdefault("confirmed", True)
     perm.setdefault("proof_note", "")
     perm.setdefault("proof_file", "")
     line, scr = build_credit(perm.get("creator_name", ""), perm.get("source_url", ""), perm.get("credit_text", ""))
@@ -329,7 +329,7 @@ def create(source: dict, options: dict, enqueue=True, creator=None, kind="video"
     if opts["min_len"] >= opts["max_len"]:
         opts["min_len"] = max(5, opts["max_len"] - 5)
     perm = {"source_url": source.get("url") or "", "creator_name": "", "credit_text": "",
-            "confirmed": False, "proof_note": "", "proof_file": ""}
+            "confirmed": True, "proof_note": "", "proof_file": ""}
     line, scr = build_credit(perm["creator_name"], perm["source_url"], perm["credit_text"])
     perm["credit_line"] = line
     perm["on_screen_credit"] = scr

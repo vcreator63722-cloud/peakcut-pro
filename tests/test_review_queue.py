@@ -132,18 +132,7 @@ def run_tests():
     job["clips"] = [c_a, c_b, c_c]
     jobs.save(job)
 
-    # 1. Enqueue blocked when permission unconfirmed
-    try:
-        posting.enqueue(job, c_a, ["acc_yt"])
-        check("Enqueue blocked without permission", False, True)
-    except ValueError as e:
-        check("Enqueue blocked without permission", "permission confirmed" in str(e), True)
-
-    # Confirm permission
-    jobs.update_permission(job["id"], {"confirmed": True, "source_url": "https://youtube.com/watch?v=GTA6Gameplay"})
-    job = jobs.get(job["id"])
-
-    # Enqueue Moment A
+    # 1. Enqueue Moment A directly (unrestricted posting)
     queued = posting.enqueue(job, c_a, ["acc_yt"])
     check("Moment A enqueued successfully", len(queued), 1)
 
@@ -179,21 +168,9 @@ def run_tests():
     posting.on_clip_ready(job_auto, c_auto1)
     check("Auto-post does not trigger when creator autopost is False (review first)", len(posting._mine()), 0)
 
-    # Case B: Autopost is True, but permission is UNCONFIRMED
+    # Case B: Autopost is True, but ORIGINALITY CHECKLIST FAILS
     creator_auto = creators.create({"name": "auto_creator", "autopost": True, "accounts": ["acc_yt"], "post_min_score": 70})
-    job_unperm = jobs.create({"type": "url", "url": "https://youtube.com/watch?v=GTA6Unperm"}, {}, enqueue=False, creator=creator_auto["id"])
-    # permission confirmed is False
-    c_auto2 = {"id": "ca2", "start": 10.0, "end": 30.0, "status": "done", "score": 85,
-               "originality": {"passed": True, "voiceover_present": True, "voiceover_coverage": True, "not_identical": True}}
-    job_unperm["clips"] = [c_auto2]
-    jobs.save(job_unperm)
-
-    posting.on_clip_ready(job_unperm, c_auto2)
-    check("Auto-post blocked when permission is unconfirmed", len(posting._mine()), 0)
-
-    # Case C: Autopost is True, permission confirmed, but ORIGINALITY CHECKLIST FAILS
     job_unorig = jobs.create({"type": "url", "url": "https://youtube.com/watch?v=GTA6Unorig"}, {}, enqueue=False, creator=creator_auto["id"])
-    jobs.update_permission(job_unorig["id"], {"confirmed": True})
     c_auto3 = {"id": "ca3", "start": 10.0, "end": 30.0, "status": "done", "score": 85,
                "originality": {"passed": False, "voiceover_present": False, "voiceover_coverage": False, "not_identical": True}}
     job_unorig["clips"] = [c_auto3]
@@ -202,18 +179,17 @@ def run_tests():
     posting.on_clip_ready(job_unorig, c_auto3)
     check("Auto-post blocked when originality checklist fails", len(posting._mine()), 0)
 
-    # Case D: Autopost is True, permission confirmed, originality passed, valid score
+    # Case C: Autopost is True, originality passed, valid score
     job_pass = jobs.create({"type": "url", "url": "https://youtube.com/watch?v=GTA6Pass"}, {}, enqueue=False, creator=creator_auto["id"])
-    jobs.update_permission(job_pass["id"], {"confirmed": True})
     c_auto4 = {"id": "ca4", "start": 10.0, "end": 30.0, "status": "done", "score": 85,
                "originality": {"passed": True, "voiceover_present": True, "voiceover_coverage": True, "not_identical": True}}
     job_pass["clips"] = [c_auto4]
     jobs.save(job_pass)
 
     posting.on_clip_ready(job_pass, c_auto4)
-    check("Auto-post triggers when permission confirmed AND originality passed", len(posting._mine()), 1)
+    check("Auto-post triggers when originality passed and autopost is True", len(posting._mine()), 1)
 
-    # Case E: Duplicate moment does not auto-post twice
+    # Case D: Duplicate moment does not auto-post twice
     c_auto5_dup = {"id": "ca5", "start": 11.0, "end": 31.0, "status": "done", "score": 90,
                    "originality": {"passed": True, "voiceover_present": True, "voiceover_coverage": True, "not_identical": True}}
     job_pass["clips"].append(c_auto5_dup)
