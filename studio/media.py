@@ -140,7 +140,7 @@ def _ydl(opts):
 
 
 def _video_format(height):
-    return f"bv*[height<={height}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<={height}]+ba/b[height<={height}]/b"
+    return f"bv*[height<={height}]+ba/b[height<={height}]/bv*+ba/b"
 
 
 def _biggest(job_dir: Path, stem: str) -> Path:
@@ -342,7 +342,7 @@ def download_audio(url: str, job_dir: Path, on_progress=None) -> Path:
         if on_progress and d.get("status") == "downloading" and total:
             on_progress(d.get("downloaded_bytes", 0) / total)
 
-    _safe_download(url, {"format": "ba[ext=m4a]/ba/worst", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
+    _safe_download(url, {"format": "ba/b", "outtmpl": str(job_dir / "audio_src.%(ext)s"),
                          "progress_hooks": [hook]})
     return _biggest(job_dir, "audio_src")
 
