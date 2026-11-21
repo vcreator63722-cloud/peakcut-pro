@@ -232,6 +232,36 @@ def preview(url: str) -> dict:
     url = url.strip()
     if url in _PREVIEWS:
         return _PREVIEWS[url]
+
+    # Fast oEmbed for YouTube: loads in 0.1s without datacenter bot-checks
+    if is_youtube(url):
+        try:
+            import base64
+            import urllib.parse
+            import urllib.request
+            oembed_url = f"https://www.youtube.com/oembed?url={urllib.parse.quote(url)}&format=json"
+            req = urllib.request.Request(oembed_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=4) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            title = data.get("title") or ""
+            author = data.get("author_name") or ""
+            thumb_url = data.get("thumbnail_url") or ""
+            thumb = ""
+            if thumb_url:
+                try:
+                    treq = urllib.request.Request(thumb_url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(treq, timeout=3) as tr:
+                        tdata = tr.read(400_000)
+                        thumb = f"data:image/jpeg;base64," + base64.b64encode(tdata).decode("ascii")
+                except Exception:
+                    thumb = ""
+            if title:
+                out = {"title": title[:200], "uploader": author[:120], "duration": 0, "is_live": False, "thumb": thumb}
+                _PREVIEWS[url] = out
+                return out
+        except Exception:
+            pass
+
     i = info(url)
     if i["kind"] != "video" or not i["title"]:
         raise ValueError("That link is a channel or playlist, not a single video.")
