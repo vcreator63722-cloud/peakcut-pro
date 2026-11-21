@@ -116,12 +116,25 @@ def _ydl(opts):
     if proxy:
         extra["proxy"] = proxy
     cookie_file = config.ROOT / "cookies.txt"
+    has_cookies = False
     if cookie_file.exists():
         extra["cookiefile"] = str(cookie_file)
+        has_cookies = True
     elif config.env("PEAKCUT_YOUTUBE_COOKIES"):
         cpath = config.TMP_DIR / "yt_cookies.txt"
         cpath.write_text(config.env("PEAKCUT_YOUTUBE_COOKIES"), encoding="utf-8")
         extra["cookiefile"] = str(cpath)
+        has_cookies = True
+
+    if has_cookies:
+        extra["extractor_args"] = {"youtube": {"player_client": ["web", "mweb", "tv", "visionos"]}}
+    else:
+        extra["extractor_args"] = {
+            "youtube": {
+                "player_client": ["visionos", "android_vr", "android"],
+                "player_skip": ["configs"],
+            }
+        }
     # a channel or playlist link is answered as "a list" straight away, never walked video by video
     return yt_dlp.YoutubeDL({**extra, **opts})
 
